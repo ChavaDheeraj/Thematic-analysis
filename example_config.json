@@ -1,0 +1,76 @@
+{
+  "text_col": "response_text",
+  "id_col": "respondent_id",
+  "time_col": "created_at",
+  "group_col": "region",
+  "label_col": null,
+  "segmentation": "sentence",
+  "min_segment_words": 3,
+  "lowercase": true,
+  "remove_stopwords": true,
+  "keep_negations": true,
+  "custom_stopwords": [],
+  "synonyms": {
+    "ui": "interface"
+  },
+  "ngram_min": 1,
+  "ngram_max": 2,
+  "min_df": 2,
+  "max_df": 0.9,
+  "max_features": 5000,
+  "coding_method": "both",
+  "n_codes": 40,
+  "min_code_support": 3,
+  "phrase_boost": 1.25,
+  "codebook": [
+    {
+      "label": "Navigation",
+      "keywords": [
+        "navigat*",
+        "menu*",
+        "can't find"
+      ],
+      "description": "Difficulty finding features",
+      "category": null
+    },
+    {
+      "label": "Performance",
+      "keywords": [
+        "slow",
+        "load*",
+        "freez*",
+        "crash*"
+      ],
+      "description": "",
+      "category": null
+    }
+  ],
+  "supervised": false,
+  "clustering_method": "kmeans",
+  "n_clusters": null,
+  "k_min": 2,
+  "k_max": 12,
+  "svd_components": 100,
+  "max_hierarchical_segments": 8000,
+  "topic_method": "nmf",
+  "n_topics": 8,
+  "n_top_terms": 10,
+  "topic_min_weight": 0.3,
+  "graph_method": "louvain",
+  "cooccurrence_level": "record",
+  "min_cooccurrence": 2,
+  "min_npmi": 0.0,
+  "similarity_edges": true,
+  "similarity_threshold": 0.3,
+  "resolution": 1.0,
+  "link_prediction_baseline": true,
+  "min_theme_codes": 2,
+  "theme_label_template": "{1} & {2}",
+  "n_representative": 5,
+  "sentiment": true,
+  "temporal": true,
+  "temporal_freq": "auto",
+  "n_graph_windows": 4,
+  "temporal_top_codes": 10,
+  "random_state": 42
+}
