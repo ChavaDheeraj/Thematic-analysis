@@ -33,7 +33,6 @@ from collections import Counter
 from io import BytesIO
 from pathlib import Path
 
-from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
 
 from thematicml.data.html import page_slug
 
@@ -130,6 +129,8 @@ def _table_residue(text: str) -> bool:
 
 
 def _repair(text: str, counts: Counter, hyphenated: set[str]) -> str:
+    from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS  # imported on first use: slow to load in the browser edition
+
     """Undo spacing artefacts of the text layer using the document's own vocabulary."""
     text = re.sub(r"\s+([,.;:!?)])", r"\1", text)  # "In fact ," -> "In fact,"
 

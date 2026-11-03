@@ -29,7 +29,7 @@ from thematicml.config import AnalysisConfig, ColumnMapping, GNNConfig
 from thematicml.gnn import service as gnn
 from thematicml.data import LoadError
 from thematicml.graph import gnn_status, leiden_available
-from thematicml.pipeline import STAGES, create_run, execute_run
+from thematicml.pipeline import STAGES, create_run, run_stages
 from thematicml.reporting import ALL_FORMATS, build_dashboard, export_project_zip, export_run
 from thematicml.results import (
     NotFound,
@@ -106,10 +106,11 @@ def _submit(run_id: str):
     executor.submit(_safe_execute, run_id)
 
 
-def _safe_execute(run_id: str):
+def _execute_steps(run_id: str):
+    """The analysis one stage at a time, then the GNN experiment requested at upload time."""
     try:
-        run = execute_run(store, run_id)
-    except Exception as exc:  # execute_run records stage failures; this guards unexpected errors
+        run = yield from run_stages(store, run_id)
+    except Exception as exc:  # run_stages records stage failures; this guards unexpected errors
         store.update("runs", {"id": run_id}, {"status": "failed", "error": f"{type(exc).__name__}: {exc}"})
         return
     gcfg = (run.get("config") or {}).get("gnn")
@@ -120,6 +121,14 @@ def _safe_execute(run_id: str):
             executor.submit(gnn.execute_experiment, store, exp["id"])
         except Exception as exc:
             store.log(run["project_id"], "gnn_failed", {"run_id": run_id, "error": str(exc)})
+
+
+def _safe_execute(run_id: str):
+    for _ in _execute_steps(run_id):
+        pass
+
+
+_safe_execute.steps = _execute_steps  # the browser edition runs it a stage at a time (thematicml_api/browser.py)
 
 
 # ---------------------------------------------------------------------- system
@@ -138,6 +147,8 @@ def system():
 
     return {
         "version": thematicml.__version__,
+        # "browser" when the API runs inside the page (thematicml_api/browser.py); the workspace is then the browser's storage
+        "edition": os.environ.get("THEMATICML_EDITION", "server"),
         "workspace": str(store.root),
         "database": str(store.db_path),
         "llm_dependency": False,

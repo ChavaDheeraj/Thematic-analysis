@@ -5,7 +5,6 @@ import time
 
 import numpy as np
 import scipy.sparse as sp
-from sklearn.decomposition import NMF, LatentDirichletAllocation
 
 from thematicml.features import NEGATIONS
 
@@ -48,10 +47,14 @@ def discover_topics(
         vocab = np.asarray(vocab, dtype=object)[keep]
     k = max(2, min(n_topics, X_tfidf.shape[1] - 1, X_tfidf.shape[0] - 1))
     if method == "nmf":
+        from sklearn.decomposition import NMF  # imported on first use: slow to load in the browser edition
+
         model = NMF(n_components=k, init="nndsvda", random_state=random_state, max_iter=400)
         W = model.fit_transform(X_tfidf)
         objective = {"reconstruction_err": round(float(model.reconstruction_err_), 4)}
     else:
+        from sklearn.decomposition import LatentDirichletAllocation  # imported on first use: slow to load in the browser edition
+
         model = LatentDirichletAllocation(n_components=k, learning_method="batch", random_state=random_state, max_iter=50)
         W = model.fit_transform(X_counts)
         objective = {"perplexity": round(float(model.perplexity(X_counts)), 2)}

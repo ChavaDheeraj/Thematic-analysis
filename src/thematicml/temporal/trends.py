@@ -4,7 +4,6 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from scipy import stats
 
 
 def mann_kendall(y: list[float], alpha: float = 0.05) -> dict:
@@ -30,6 +29,8 @@ def mann_kendall(y: list[float], alpha: float = 0.05) -> dict:
         z = (s + 1) / math.sqrt(var)
     else:
         z = 0.0
+    from scipy import stats  # imported on first use: slow to load in the browser edition
+
     p = float(2 * stats.norm.sf(abs(z)))
     slopes = [(x[j] - x[i]) / (j - i) for i in range(n - 1) for j in range(i + 1, n)]
     trend = "no significant trend"

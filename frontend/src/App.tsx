@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Navigate, Route, Routes, useNavigate } from "react-router-dom";
-import { api, download } from "./api";
+import { IN_BROWSER, api, download } from "./api";
+import { engineStatus, onEngineStatus, type EngineStatus } from "./engine/client";
 import { Icon, ICONS } from "./components/icons";
 import { Badge, Button, Field, Modal, cx, inputBase, inputCls } from "./components/ui";
 import DashboardPage from "./pages/Dashboard";
@@ -38,6 +39,7 @@ export default function App() {
           </Routes>
         </main>
       </div>
+      {IN_BROWSER && <EngineGate />}
       <NewProject open={newOpen} onClose={() => setNewOpen(false)} onCreated={() => nav("/upload")} />
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       {/* Toast notifications */}
@@ -59,6 +61,53 @@ export default function App() {
             <span className="flex-1 leading-relaxed">{t.text}</span>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/** The browser edition's start-up screen: covers the app until the engine in this tab is ready. */
+function EngineGate() {
+  const [s, setS] = useState<EngineStatus>(engineStatus());
+  useEffect(() => onEngineStatus(setS), []);
+  if (s.phase === "ready") return null;
+  const problem = s.phase === "failed" || s.phase === "blocked";
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-page/95 px-4 backdrop-blur-sm" role={problem ? "alert" : "status"} aria-live="polite">
+      <div className="w-full max-w-md rounded-2xl border border-line bg-surface p-7" style={{ boxShadow: "var(--shadow-xl)" }}>
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent text-xs font-bold text-white">TM</div>
+          <div>
+            <div className="text-[15px] font-bold tracking-tight text-ink">ThematicML</div>
+            <div className="text-[11px] text-muted">Runs entirely in this browser</div>
+          </div>
+        </div>
+        {s.phase === "blocked" ? (
+          <>
+            <h1 className="mt-6 text-lg font-semibold text-ink">Already open in another tab</h1>
+            <p className="mt-2 text-sm leading-relaxed text-ink2">{s.message} Only one tab can use your projects at a time, so that nothing is overwritten. Close the other tab, then reload this one.</p>
+            <div className="mt-5"><Button kind="primary" onClick={() => location.reload()}>Reload</Button></div>
+          </>
+        ) : s.phase === "failed" ? (
+          <>
+            <h1 className="mt-6 text-lg font-semibold text-ink">The analysis engine could not start</h1>
+            <p className="mt-2 text-sm leading-relaxed text-ink2">It needs a recent Chrome, Edge, Firefox or Safari, and an internet connection to download its libraries. Your projects are kept in this browser and are not affected.</p>
+            <p className="mt-2 break-words rounded-md bg-raised px-3 py-2 font-mono text-[11px] text-muted">{s.message}</p>
+            <div className="mt-5"><Button kind="primary" onClick={() => location.reload()}>Try again</Button></div>
+          </>
+        ) : (
+          <>
+            <h1 className="mt-6 text-lg font-semibold text-ink">Setting up ThematicML</h1>
+            <p className="mt-1 text-sm text-ink2">{s.message || "Starting the analysis engine"}…</p>
+            <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-line">
+              <div className="progress-shimmer h-1.5 rounded-full transition-all duration-500" style={{ width: `${Math.max(4, s.progress * 100)}%` }} />
+            </div>
+            <p className="mt-4 text-xs leading-relaxed text-muted">
+              Analyses run on this device and your files never leave it. The first visit downloads about 60 MB of analysis libraries;
+              later visits reuse them. Your projects are saved in this browser.
+            </p>
+          </>
+        )}
       </div>
     </div>
   );
@@ -112,7 +161,7 @@ function Sidebar({ onNewProject, onSettings }: { onNewProject: () => void; onSet
             <div className="mt-0.5 text-[11px] leading-none text-muted">Research workspace</div>
           </div>
         </div>
-        <span className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-good/10 px-2.5 py-1 text-[10px] font-semibold text-good" title="All processing runs on this machine. No LLM or remote AI service is used.">
+        <span className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-good/10 px-2.5 py-1 text-[10px] font-semibold text-good" title={IN_BROWSER ? "All processing runs in this browser, on this device. No LLM or remote AI service is used." : "All processing runs on this machine. No LLM or remote AI service is used."}>
           <span className="h-1.5 w-1.5 rounded-full bg-good" />
           Local · No LLM
         </span>
@@ -166,7 +215,7 @@ function Sidebar({ onNewProject, onSettings }: { onNewProject: () => void; onSet
           className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-ink2 transition-colors hover:bg-raised hover:text-ink">
           <Icon path={ICONS.settings} size={15} />Settings
         </button>
-        <div className="mt-2 px-3 text-[11px] text-muted">v{system?.version ?? "—"} · runs on this machine</div>
+        <div className="mt-2 px-3 text-[11px] text-muted">v{system?.version ?? "—"} · {IN_BROWSER ? "runs in this browser" : "runs on this machine"}</div>
       </div>
     </aside>
   );
@@ -272,11 +321,18 @@ function Settings({ open, onClose }: { open: boolean; onClose: () => void }) {
         <div className="border-t border-line" />
         <section>
           <h3 className="mb-3 text-[13px] font-semibold text-ink2 uppercase tracking-wide">Local storage</h3>
+          {system?.edition === "browser" ? (
+            <p className="text-xs leading-relaxed text-ink2">
+              Your projects, uploads and analyses are saved in this browser on this device. Other devices and browsers have their own, separate projects.
+              Clearing this site's data deletes them, so keep a copy with <span className="font-medium">Download backup (ZIP)</span> below.
+            </p>
+          ) : (<>
           <dl className="grid grid-cols-[8rem_1fr] gap-y-2 text-xs">
             <dt className="text-muted pt-px">Workspace</dt><dd className="break-all font-mono bg-raised rounded px-2 py-1">{system?.workspace}</dd>
             <dt className="text-muted pt-px">Database</dt><dd className="break-all font-mono bg-raised rounded px-2 py-1">{system?.database}</dd>
           </dl>
           <p className="mt-2 text-xs text-muted">Set the <code className="rounded bg-raised px-1 py-px font-mono">THEMATICML_HOME</code> environment variable before starting the server to use a different folder.</p>
+          </>)}
         </section>
         {settings && (
           <>
@@ -302,7 +358,7 @@ function Settings({ open, onClose }: { open: boolean; onClose: () => void }) {
               { key: "vader", label: "Lexicon sentiment (VADER, rule-based)", val: opt.sentiment_vader },
               { key: "statsmodels", label: "Seasonal decomposition & ARIMA (statsmodels)", val: opt.statsmodels },
               { key: "pdf", label: "PDF reports (fpdf2)", val: opt.pdf_reports },
-              { key: "gnn", label: `Graph neural networks — optional neural module. ${opt.gnn?.reason ?? ""}`, val: opt.gnn?.available },
+              { key: "gnn", label: `Graph neural networks (GraphSAGE) — ${opt.gnn?.backend === "pytorch" ? "PyTorch Geometric" : "built in (NumPy, CPU)"}. ${opt.gnn?.reason ?? ""}`, val: opt.gnn?.available },
             ].map(({ key, label, val }) => (
               <li key={key} className="flex items-start gap-2">
                 <Badge status={val ? "completed" : "candidate"}>{val ? "installed" : "not installed"}</Badge>

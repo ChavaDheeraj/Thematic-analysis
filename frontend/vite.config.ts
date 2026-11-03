@@ -8,4 +8,6 @@ export default defineConfig({
     proxy: { "/api": "http://127.0.0.1:8000" },
   },
   build: { outDir: "dist", chunkSizeWarningLimit: 1500 },
+  // the browser edition's engine is a module worker: it imports Pyodide from its CDN at run time
+  worker: { format: "es" },
 });

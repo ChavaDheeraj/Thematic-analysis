@@ -14,9 +14,6 @@ import itertools
 
 import numpy as np
 import pandas as pd
-from scipy.stats import hypergeom
-from sklearn.cluster import AgglomerativeClustering
-from sklearn.preprocessing import normalize
 
 from thematicml.analytics import benjamini_hochberg
 from thematicml.analytics.percentages import percentage
@@ -181,6 +178,8 @@ def coded_statements(store: Store, run_id: str, page: int = 1, size: int = 25, s
 
 def _quotations(store: Store, run: dict, per_code: int = 2) -> dict[int, list[dict]]:
     """Verbatim example quotations per code: its most typical readable passages, from different records."""
+    from sklearn.preprocessing import normalize  # imported on first use: slow to load in the browser edition
+
     segs = load_segments(store, run["id"])
     X = feature_matrix_by_pos(store, run, segs)
     Xn = normalize(X) if X is not None else None
@@ -234,6 +233,8 @@ def suggest_categories(store: Store, run: dict, codes: list[dict], segs: pd.Data
         return {}
     assigns = load_assignments(store, run["id"]) if assigns is None else assigns
     positions = {k: g["segment_pos"].unique() for k, g in assigns.groupby("code_id")}
+    from sklearn.preprocessing import normalize  # imported on first use: slow to load in the browser edition
+
     Xn = normalize(X)
     vec = {c["id"]: normalize(np.asarray(Xn[positions[c["id"]]].mean(axis=0)))[0] for c in codes if c["id"] in positions}
 
@@ -256,6 +257,8 @@ def suggest_categories(store: Store, run: dict, codes: list[dict], segs: pd.Data
         M = np.vstack([vec[c["id"]] for c in rest])
         dist = np.clip(1 - M @ M.T, 0, 2)
         np.fill_diagonal(dist, 0)
+        from sklearn.cluster import AgglomerativeClustering  # imported on first use: slow to load in the browser edition
+
         groups = AgglomerativeClustering(n_clusters=None, distance_threshold=GROUP_DISTANCE, metric="precomputed", linkage="average").fit_predict(dist)
         for g in set(groups.tolist()):
             group = sorted((c for c, x in zip(rest, groups) if x == g), key=lambda c: -c["segments"])
@@ -345,6 +348,8 @@ def _theme_links(store: Store, run: dict, themes: list[dict], codes: dict, pos_o
             continue
         n = len(A & B)
         expected = len(A) * len(B) / n_units
+        from scipy.stats import hypergeom  # imported on first use: slow to load in the browser edition
+
         p = min(1.0, 2 * min(float(hypergeom.sf(n - 1, n_units, len(A), len(B))), float(hypergeom.cdf(n, n_units, len(A), len(B)))))
         rows.append({"a": a["id"], "b": b["id"], "a_label": a["label"], "b_label": b["label"], "shared": n, "expected": round(expected, 1),
                      "lift": round(n / expected, 2) if expected else None, "p": p})

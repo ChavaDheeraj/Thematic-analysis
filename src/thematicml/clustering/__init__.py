@@ -5,10 +5,6 @@ import time
 
 import numpy as np
 import scipy.sparse as sp
-from sklearn.cluster import AgglomerativeClustering, KMeans
-from sklearn.decomposition import TruncatedSVD
-from sklearn.metrics import calinski_harabasz_score, davies_bouldin_score, silhouette_score
-from sklearn.preprocessing import normalize
 
 from thematicml.config import AnalysisConfig
 
@@ -20,15 +16,21 @@ class ClusteringError(ValueError):
 
 
 def lsa_embed(X: sp.csr_matrix, n_components: int, random_state: int) -> np.ndarray:
+    from sklearn.preprocessing import normalize  # imported on first use: slow to load in the browser edition
+
     """Reduce TF-IDF with truncated SVD and L2-normalise (latent semantic analysis)."""
     k = max(1, min(n_components, X.shape[1] - 1, X.shape[0] - 1))
     if k < 2:
         return normalize(X.toarray())
+    from sklearn.decomposition import TruncatedSVD  # imported on first use: slow to load in the browser edition
+
     svd = TruncatedSVD(n_components=k, random_state=random_state)
     return normalize(svd.fit_transform(X))
 
 
 def _fit(method: str, Z: np.ndarray, k: int, seed: int) -> np.ndarray:
+    from sklearn.cluster import AgglomerativeClustering, KMeans  # imported on first use: slow to load in the browser edition
+
     if method == "kmeans":
         return KMeans(n_clusters=k, n_init=10, random_state=seed).fit_predict(Z)
     return AgglomerativeClustering(n_clusters=k, linkage="ward").fit_predict(Z)
@@ -38,10 +40,14 @@ def _silhouette(Z, labels, seed) -> float | None:
     if len(set(labels)) < 2 or len(set(labels)) >= len(labels):
         return None
     n = len(labels)
+    from sklearn.metrics import silhouette_score  # imported on first use: slow to load in the browser edition
+
     return float(silhouette_score(Z, labels, metric="cosine", sample_size=min(n, 2000), random_state=seed))
 
 
 def cluster_segments(X: sp.csr_matrix, cfg: AnalysisConfig) -> dict:
+    from sklearn.metrics import calinski_harabasz_score, davies_bouldin_score  # imported on first use: slow to load in the browser edition
+
     """Cluster rows of X. Rows with no features get label -1 (unassigned).
 
     Returns dict with labels (np.ndarray), embedding (np.ndarray, rows with

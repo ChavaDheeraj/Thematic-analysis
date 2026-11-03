@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 
 from thematicml.config import GNNConfig
+from thematicml.gnn import backend
 from thematicml.graph.gnn import OptionalDependencyError, gnn_status, require_gnn
 from thematicml.storage.database import Store, new_id, now
 
@@ -39,7 +40,7 @@ def ensure_schema(store: Store) -> None:
 
 
 def software_versions() -> dict:
-    out = {"python": platform.python_version()}
+    out = {"python": platform.python_version(), "gnn_backend": gnn_status()["backend"], "numpy": np.__version__}
     try:
         import torch
         import torch_geometric
@@ -190,11 +191,25 @@ def checkpoint_file(store: Store, exp: dict) -> Path:
         raise ValueError("This experiment has no checkpoint.")
     root = store.root.resolve()
     p = (root / rel).resolve()
-    if root not in p.parents or p.suffix != ".pt":
-        raise ValueError("Checkpoint path is outside the workspace or not a .pt file; refusing to load it.")
+    if root not in p.parents or p.suffix not in CHECKPOINT_BACKENDS:
+        raise ValueError("Checkpoint path is outside the workspace or not a checkpoint file (.pt or .npz); refusing to load it.")
     if not p.exists():
         raise ValueError("Checkpoint file is missing.")
     return p
+
+
+CHECKPOINT_BACKENDS = {".pt": "pytorch", ".npz": "numpy"}
+
+
+def checkpoint_backend(path: Path):
+    """The backend that wrote a checkpoint: PyTorch checkpoints need PyTorch to be read back."""
+    from thematicml.graph.gnn import _torch
+
+    name = CHECKPOINT_BACKENDS[path.suffix]
+    if name == "pytorch" and _torch() is None:
+        raise ValueError("This experiment was trained with PyTorch, which is not installed here, so its checkpoint cannot be "
+                         "loaded. Start a new experiment to train it with the built-in GraphSAGE.")
+    return backend(name)
 
 
 def _agg(values: list[float | None]) -> dict:
@@ -206,6 +221,13 @@ def _agg(values: list[float | None]) -> dict:
 
 
 def execute_experiment(store: Store, eid: str) -> dict:
+    for _ in experiment_steps(store, eid):
+        pass
+    return get_experiment(store, eid)
+
+
+def experiment_steps(store: Store, eid: str):
+    """Train an experiment, yielding after each repeat (the browser edition hands the page a turn there)."""
     exp = get_experiment(store, eid)
     if exp is None:
         raise KeyError(eid)
@@ -213,9 +235,7 @@ def execute_experiment(store: Store, eid: str) -> dict:
     t0 = time.perf_counter()
     store.update("gnn_experiments", {"id": eid}, {"status": "running", "started_at": now(), "error": None})
     try:
-        require_gnn()
-        from thematicml.gnn import core
-
+        core = backend()
         nodes, edges, params = graph_inputs(store, exp["run_id"], cfg)
         data = core.build_graph_data(nodes, edges, cfg.feature_set, params)
         store.update("gnn_experiments", {"id": eid}, {"graph_version": data.version,
@@ -238,10 +258,12 @@ def execute_experiment(store: Store, eid: str) -> dict:
                 res = core.train_node_classifier(data, labels, cfg, seed, tick)
             results.append(res)
             done[0] = (r + 1) * cfg.epochs
+            store.update("gnn_experiments", {"id": eid}, {"progress": round(min(0.99, done[0] / total), 3)})
+            yield r
 
         first = results[0]
         d = _exp_dir(store, exp)
-        ckpt = d / "model.pt"
+        ckpt = d / f"model{core.CHECKPOINT_SUFFIX}"
         meta = {"config": cfg.model_dump(), "graph_version": data.version, "node_ids": data.node_ids,
                 "feature_description": data.feature_description, "in_dim": int(data.x.shape[1]), "seed": first["seed"]}
         core.save_checkpoint(ckpt, {"state": first["state"], "meta": json.dumps(meta)})
@@ -260,7 +282,7 @@ def execute_experiment(store: Store, eid: str) -> dict:
                           "source_label": data.labels[p["index"]], "predicted_class": p["predicted"], "score": p["confidence"],
                           "true_class": p["true"], "split": p["split"], "graph_version": data.version, "created_at": now()}
                          for p in first["predictions"]]
-            emb = _clf_embeddings(core, first["state"], data, cfg)
+            emb = core.classifier_embeddings(first["state"], data, cfg)
         _save_embeddings(d, data, emb, nodes)
         with store.connect() as con:
             con.execute("DELETE FROM gnn_predictions WHERE experiment_id = ?", (eid,))
@@ -278,7 +300,9 @@ def execute_experiment(store: Store, eid: str) -> dict:
         store.update("gnn_experiments", {"id": eid}, {"status": "failed", "error": msg, "finished_at": now(),
                                                       "duration_s": round(time.perf_counter() - t0, 3)})
         store.log(exp["project_id"], "gnn_failed", {"experiment_id": eid, "error": msg})
-    return get_experiment(store, eid)
+
+
+execute_experiment.steps = experiment_steps
 
 
 def _link_summary(results: list[dict]) -> tuple[dict, dict]:
@@ -338,16 +362,6 @@ def _clf_summary(results: list[dict]) -> tuple[dict, dict]:
     return metrics, base
 
 
-def _clf_embeddings(core, state, data, cfg):
-    import torch
-
-    model = core.NodeClassifier(data.x.shape[1], cfg, len(state["classes"]))
-    model.load_state_dict(state["classifier"])
-    model.eval()
-    with torch.no_grad():
-        return model.encoder(torch.as_tensor(data.x), core._edge_index(data.edges, torch.device("cpu"))).numpy()
-
-
 def _save_embeddings(d: Path, data, emb: np.ndarray, nodes: list[dict]) -> None:
     from sklearn.decomposition import PCA
 
@@ -373,9 +387,6 @@ def predictions(store: Store, eid: str, limit: int = 200) -> list[dict]:
 
 def rescore(store: Store, eid: str, top_k: int = 50) -> dict:
     """Load the saved checkpoint and score the run's *current* graph (inference)."""
-    require_gnn()
-    from thematicml.gnn import core
-
     exp = get_experiment(store, eid)
     if exp is None:
         raise KeyError(eid)
@@ -383,7 +394,9 @@ def rescore(store: Store, eid: str, top_k: int = 50) -> dict:
         raise ValueError("Only completed experiments have a checkpoint.")
     if exp["task"] != "link_prediction":
         raise ValueError("Re-scoring is implemented for link prediction experiments.")
-    ck = core.load_checkpoint(checkpoint_file(store, exp))
+    path = checkpoint_file(store, exp)
+    core = checkpoint_backend(path)
+    ck = core.load_checkpoint(path)
     meta = json.loads(ck["meta"])
     cfg = GNNConfig(**meta["config"])
     nodes, edges, params = graph_inputs(store, exp["run_id"], cfg)

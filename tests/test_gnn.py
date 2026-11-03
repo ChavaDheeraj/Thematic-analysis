@@ -13,27 +13,10 @@ from thematicml.config import GNNConfig
 torch = pytest.importorskip("torch")
 pytest.importorskip("torch_geometric")
 
+from gnn_fixtures import FAST, planted_graph  # noqa: E402
 from thematicml.gnn import core  # noqa: E402
 
 
-def planted_graph(seed=0, groups=("alpha", "beta", "gamma"), size=12, p_in=0.5, p_out=0.03):
-    """Stochastic block model; labels share a prefix within a group (SYNTHETIC)."""
-    rng = np.random.default_rng(seed)
-    nodes, members = [], []
-    for g in groups:
-        for i in range(size):
-            nid = 100 + len(nodes)
-            nodes.append({"id": nid, "label": f"{g} topic {i}", "frequency": int(rng.integers(3, 40)), "method": "tfidf", "category": g})
-            members.append(g)
-    edges = []
-    for a in range(len(nodes)):
-        for b in range(a + 1, len(nodes)):
-            if rng.random() < (p_in if members[a] == members[b] else p_out):
-                edges.append({"source": nodes[a]["id"], "target": nodes[b]["id"], "type": "cooccurrence", "weight": int(rng.integers(2, 9))})
-    return nodes, edges
-
-
-FAST = dict(epochs=120, patience=40, repeats=1, hidden_dim=32, out_dim=16)
 
 
 def test_conversion_ids_types_and_dedup():
@@ -168,7 +151,7 @@ def test_checkpoint_roundtrip_and_inference(tmp_path):
     assert [p["rank"] for p in a] == list(range(1, 11))
 
 
-def test_missing_dependency_is_reported(monkeypatch):
+def test_without_pyg_the_numpy_backend_is_used(monkeypatch):
     import builtins
 
     from thematicml.graph import gnn as gmod
@@ -181,6 +164,9 @@ def test_missing_dependency_is_reported(monkeypatch):
         return real(name, *a, **k)
 
     monkeypatch.setattr(builtins, "__import__", fake)
+    st = gmod.gnn_status()
+    assert st["available"] is True and st["backend"] == "numpy" and "pip install" in st["note"]
+    monkeypatch.setenv("THEMATICML_GNN_BACKEND", "pytorch")  # asking for PyTorch explicitly still explains what is missing
     st = gmod.gnn_status()
     assert st["available"] is False and "pip install" in st["reason"]
     with pytest.raises(gmod.OptionalDependencyError):

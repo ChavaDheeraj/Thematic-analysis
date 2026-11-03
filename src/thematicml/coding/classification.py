@@ -9,11 +9,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, confusion_matrix, precision_recall_fscore_support
-from sklearn.base import clone
-from sklearn.metrics import f1_score
-from sklearn.model_selection import GroupKFold, GroupShuffleSplit
 
 from thematicml.coding.extraction import ASSIGN_COLUMNS, CODE_COLUMNS
 from thematicml.features import FeatureSet
@@ -27,6 +22,12 @@ def train_record_classifier(
     test_size: float = 0.25,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """records: record_id, record_key, text, label. Returns codes, assignments, evaluation."""
+    # imported on first use: slow to load in the browser edition
+    from sklearn.base import clone
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_recall_fscore_support
+    from sklearn.model_selection import GroupKFold, GroupShuffleSplit
+
     labelled = records[records["label"].notna()].copy()
     info: dict = {"available": False}
     if labelled.empty:

@@ -1,6 +1,22 @@
 {
   "installCommand": "cd frontend && npm ci",
-  "buildCommand": "cd frontend && npm run build",
-  "outputDirectory": "frontend/dist",
-  "rewrites": [{ "source": "/((?!api/|assets/).*)", "destination": "/index.html" }]
+  "buildCommand": "cd frontend && npm run build:browser",
+  "outputDirectory": "frontend/dist-browser",
+  "rewrites": [
+    {
+      "source": "/((?!api/|assets/|engine/).*)",
+      "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/engine/(python-.*\\.json|wheels/.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    }
+  ]
 }

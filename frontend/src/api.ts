@@ -1,4 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { engineFetch } from "./engine/client";
+
+/** The browser edition answers /api requests inside the page (engine/); the server edition sends them to the server. */
+export const IN_BROWSER = import.meta.env.VITE_ENGINE === "browser";
+const send: (url: string, init?: RequestInit) => Promise<Response> = IN_BROWSER ? engineFetch : (url, init) => fetch(url, init);
+// in the browser edition a failed request is the engine's own error, never a missing server
+const unreachable = (e: unknown) => new ApiError(0, IN_BROWSER ? String((e as Error)?.message ?? e) : NO_SERVER);
+
 export type Pct = { numerator: number; denominator: number; value: number | null; definition: string; level?: string; ci95?: [number, number] };
 
 export interface Project { id: string; name: string; description: string; created_at: string; n_datasets: number; n_runs: number }
@@ -36,7 +44,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
     (init.headers as Record<string, string>)["Content-Type"] = "application/json";
   }
   let res: Response;
-  try { res = await fetch(url, init); } catch { throw new ApiError(0, NO_SERVER); }
+  try { res = await send(url, init); } catch (e) { throw unreachable(e); }
   if (!fromThematicML(res)) throw new ApiError(res.status, NO_SERVER);
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`;
@@ -67,7 +75,7 @@ export function qs(params: Record<string, string | number | boolean | null | und
 /** Trigger a browser download for a GET endpoint that returns a file. */
 export async function download(url: string): Promise<void> {
   let res: Response;
-  try { res = await fetch(url); } catch { throw new ApiError(0, NO_SERVER); }
+  try { res = await send(url); } catch (e) { throw unreachable(e); }
   if (!res.ok) {
     if (!fromThematicML(res)) throw new ApiError(res.status, NO_SERVER);
     let msg = res.statusText;

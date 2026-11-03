@@ -10,7 +10,7 @@ import json
 import sys
 import time
 import traceback
-from typing import Callable
+from typing import Callable, Generator
 
 import joblib
 import numpy as np
@@ -460,7 +460,12 @@ def create_run(store: Store, project_id: str, dataset_ids: list[str], cfg: Analy
     return store.get_run(rid)
 
 
-def execute_run(store: Store, run_id: str, on_progress: Callable[[dict], None] | None = None) -> dict:
+def run_stages(store: Store, run_id: str, on_progress: Callable[[dict], None] | None = None) -> Generator[str, None, dict]:
+    """Run the pipeline one stage at a time, yielding each stage's name once it is saved; returns the final run.
+
+    ``execute_run`` drives it to the end. The browser edition yields to the page between stages,
+    because a browser tab has no threads to run an analysis in the background.
+    """
     run = store.get_run(run_id)
     if run is None:
         raise KeyError(run_id)
@@ -499,6 +504,7 @@ def execute_run(store: Store, run_id: str, on_progress: Callable[[dict], None] |
             joblib.dump(st, ckpt)
         store.update("runs", {"id": run_id}, {"completed_stages": completed, "stage_timings": timings,
                                                "progress": round(len(completed) / len(STAGES), 3)})
+        yield name
 
     duration = round(sum(timings.values()), 3)
     summary = _jsonable(st["summary"])
@@ -515,3 +521,12 @@ def execute_run(store: Store, run_id: str, on_progress: Callable[[dict], None] |
         ckpt.unlink()
     store.log(run["project_id"], "analysis_completed", {"run_id": run_id, "duration_s": duration, "wall_s": round(time.perf_counter() - started, 3)})
     return store.get_run(run_id)
+
+
+def execute_run(store: Store, run_id: str, on_progress: Callable[[dict], None] | None = None) -> dict:
+    stages = run_stages(store, run_id, on_progress)
+    while True:
+        try:
+            next(stages)
+        except StopIteration as finished:
+            return finished.value

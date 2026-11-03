@@ -5,7 +5,13 @@ import math
 
 import numpy as np
 import pandas as pd
-from scipy import stats
+
+
+def _stats():
+    # scipy.stats takes seconds to import, which delays start-up in the browser edition; load it on first use
+    from scipy import stats
+
+    return stats
 
 
 def benjamini_hochberg(pvals: list[float]) -> list[float]:
@@ -55,10 +61,10 @@ def group_comparison(assignments: pd.DataFrame, segments: pd.DataFrame, labels: 
         if obs[:, 1].sum() == 0 or obs[:, 0].sum() == 0:
             row.update({"test": None, "p_value": None, "note": "Code absent or universal; not tested."})
         else:
-            chi2, p, dof, expected = stats.chi2_contingency(obs, correction=False)
+            chi2, p, dof, expected = _stats().chi2_contingency(obs, correction=False)
             low = (expected < 5).mean()
             if obs.shape == (2, 2) and low > 0:
-                _, p = stats.fisher_exact(obs)
+                _, p = _stats().fisher_exact(obs)
                 row.update({"test": "fisher_exact", "p_value": float(p)})
             else:
                 row.update({"test": "chi_square", "statistic": round(float(chi2), 4), "dof": int(dof), "p_value": float(p)})
@@ -66,7 +72,7 @@ def group_comparison(assignments: pd.DataFrame, segments: pd.DataFrame, labels: 
                     row["note"] = "More than 20% of expected counts are below 5; chi-square approximation may be unreliable."
             n = obs.sum()
             k = min(obs.shape) - 1
-            row["cramers_v"] = round(math.sqrt(stats.chi2_contingency(obs, correction=False)[0] / (n * k)), 4) if k > 0 else None
+            row["cramers_v"] = round(math.sqrt(_stats().chi2_contingency(obs, correction=False)[0] / (n * k)), 4) if k > 0 else None
         results.append(row)
     tested = [r for r in results if r.get("p_value") is not None]
     for r, adj in zip(tested, benjamini_hochberg([r["p_value"] for r in tested])):
@@ -90,7 +96,7 @@ def two_proportion(k1: int, n1: int, k2: int, n2: int) -> dict:
     se = math.sqrt(p1 * (1 - p1) / n1 + p2 * (1 - p2) / n2)
     pooled = (k1 + k2) / (n1 + n2)
     se0 = math.sqrt(pooled * (1 - pooled) * (1 / n1 + 1 / n2))
-    p = float(2 * stats.norm.sf(abs(diff) / se0)) if se0 > 0 else None
+    p = float(2 * _stats().norm.sf(abs(diff) / se0)) if se0 > 0 else None
     return {
         "diff_pct": round(100 * diff, 2),
         "ci95": [round(100 * (diff - 1.96 * se), 2), round(100 * (diff + 1.96 * se), 2)],

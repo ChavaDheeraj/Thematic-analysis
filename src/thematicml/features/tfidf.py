@@ -3,12 +3,15 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 import scipy.sparse as sp
-from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS, CountVectorizer, TfidfVectorizer
 
 from thematicml.config import AnalysisConfig
+
+if TYPE_CHECKING:
+    from sklearn.feature_extraction.text import TfidfVectorizer
 
 TOKEN_RE = re.compile(r"[^\W_]+(?:'[^\W_]+)?", re.UNICODE)
 
@@ -38,6 +41,8 @@ CONTRACTIONS = frozenset(
 def build_stopwords(cfg: AnalysisConfig) -> set[str]:
     if not cfg.remove_stopwords:
         return {w.lower() for w in cfg.custom_stopwords}
+    from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS  # imported on first use: slow to load in the browser edition
+
     words = set(ENGLISH_STOP_WORDS) | CONTRACTIONS
     if cfg.keep_negations:
         words -= NEGATIONS
@@ -127,6 +132,8 @@ def fit_tfidf(texts: list[str], cfg: AnalysisConfig) -> FeatureSet:
     norm = TextNormaliser(cfg)
     min_df = cfg.min_df if n >= cfg.min_df * 2 else 1
     max_df = cfg.max_df if n >= 10 else 1.0
+    from sklearn.feature_extraction.text import TfidfVectorizer  # imported on first use: slow to load in the browser edition
+
     vec = TfidfVectorizer(
         preprocessor=norm.preprocess,
         tokenizer=norm.tokenize,
@@ -151,6 +158,8 @@ def fit_tfidf(texts: list[str], cfg: AnalysisConfig) -> FeatureSet:
 def count_matrix(texts: list[str], features: FeatureSet) -> sp.csr_matrix:
     """Raw term counts over the same vocabulary (used by LDA and coherence)."""
     v = features.vectorizer
+    from sklearn.feature_extraction.text import CountVectorizer  # imported on first use: slow to load in the browser edition
+
     cv = CountVectorizer(
         preprocessor=features.normaliser.preprocess,
         tokenizer=features.normaliser.tokenize,

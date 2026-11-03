@@ -9,7 +9,6 @@ from __future__ import annotations
 import random
 
 import networkx as nx
-from sklearn.metrics import roc_auc_score
 
 
 def link_prediction_baseline(G: nx.Graph, holdout: float = 0.2, seed: int = 42) -> dict:
@@ -42,6 +41,8 @@ def link_prediction_baseline(G: nx.Graph, holdout: float = 0.2, seed: int = 42) 
         ("preferential_attachment", nx.preferential_attachment),
     ):
         scores = [s for _, _, s in fn(train, pairs)]
+        from sklearn.metrics import roc_auc_score  # imported on first use: slow to load in the browser edition
+
         results[name] = round(float(roc_auc_score(y, scores)), 4)
     return {
         "available": True,

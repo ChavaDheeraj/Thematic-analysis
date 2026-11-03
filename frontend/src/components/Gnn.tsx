@@ -10,6 +10,11 @@ export interface PredictedLink { source: number; target: number; score: number; 
 
 const ms = (x: any, d = 3) => (x && x.mean !== null && x.mean !== undefined ? `${x.mean.toFixed(d)}${x.n > 1 ? ` ± ${x.std.toFixed(d)}` : ""}` : "—");
 
+/** Which GraphSAGE implementation trains the models. */
+const engineLabel = (st: any) => st?.backend === "pytorch"
+  ? `torch ${st.torch} · PyG ${st.torch_geometric} · ${st.cuda_available ? "CUDA available" : "CPU"}`
+  : "Built-in GraphSAGE (NumPy) · CPU";
+
 function useGnnStatus() {
   const [st] = useFetch<any>("/api/gnn/status");
   return st;
@@ -71,7 +76,7 @@ export function GnnDashboardCard({ runId }: { runId: string }) {
   const done = (list ?? []).filter((e) => e.status === "completed" && e.task === "link_prediction");
   const [latest] = useFetch<any>(done.length ? `/api/gnn/${done[0].id}` : null);
   return (
-    <Card title="Graph neural network (GraphSAGE)" subtitle={st?.available ? `Installed · torch ${st.torch} · PyG ${st.torch_geometric} · ${st.cuda_available ? "CUDA available" : "CPU"}` : "Optional neural module"}>
+    <Card title="Graph neural network (GraphSAGE)" subtitle={st?.available ? engineLabel(st) : "Optional neural module"}>
       {!st ? <Loading /> : !st.available ? <Unavailable reason={st.reason} /> : !list?.length ? (
         <p className="text-sm text-muted">No GNN experiments for this run. Start one in Graphs & Patterns → Graph neural network.</p>
       ) : (
@@ -153,7 +158,7 @@ export function GnnSection({ run, g, onPredicted, onOpenCode }: { run: Run; g: a
       {!st ? <Loading /> : !st.available ? <Unavailable reason={st.reason} /> : (
         <div className="space-y-4">
           <div className="grid gap-4 xl:grid-cols-[1fr_1.4fr]">
-            <Card title="New experiment" subtitle={`torch ${st.torch} · PyG ${st.torch_geometric} · ${st.cuda_available ? "CUDA available" : "CPU only"}`}>
+            <Card title="New experiment" subtitle={engineLabel(st)}>
               {!form ? <Loading /> : (
                 <>
                   <div className="grid grid-cols-2 gap-3">

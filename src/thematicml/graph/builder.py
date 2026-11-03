@@ -19,7 +19,6 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
-from sklearn.preprocessing import normalize
 
 
 def cooccurrence_edges(unit_sets: dict[str, set], n_units: int, min_count: int, min_npmi: float | None = None) -> list[dict]:
@@ -53,6 +52,8 @@ def cooccurrence_edges(unit_sets: dict[str, set], n_units: int, min_count: int, 
 
 
 def similarity_edges(X: sp.csr_matrix, seg_sets: dict[str, set[int]], threshold: float) -> list[dict]:
+    from sklearn.preprocessing import normalize  # imported here: scikit-learn is slow to load in the browser edition
+
     keys = sorted(seg_sets)
     if len(keys) < 2:
         return []

@@ -11,7 +11,6 @@ import re
 
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import normalize
 
 
 def template_label(template: str, terms: list[str]) -> str:
@@ -48,6 +47,8 @@ def discover_themes(
     n_resp = segments["record_key"].nunique()
     seg_rec = segments["record_id"].to_numpy()
     seg_resp = segments["record_key"].to_numpy()
+    from sklearn.preprocessing import normalize  # imported on first use: slow to load in the browser edition
+
     Xn = normalize(X) if X is not None else None
 
     themes = []
