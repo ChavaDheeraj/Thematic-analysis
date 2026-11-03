@@ -46,9 +46,9 @@ cd frontend; npm install; npm run build; cd ..    # once, or after changing the 
 .\start.ps1                                         # or: python -m uvicorn thematicml_api.main:app --port 8000
 ```
 
-Open <http://127.0.0.1:8000>. Stop the server with **Ctrl+C** in its terminal. Analyses still running when it stops are marked *interrupted* on the next start and can be retried from the failed stage.
+Open <http://127.0.0.1:8000>, the address the start script prints. Opening `index.html` with VS Code Live Server, from the file system or with `npm run dev` while the server is stopped shows the pages but cannot create projects or load anything: every `/api` request then fails with 404, and the app says it is not connected. The same is true of hosting only the website (`frontend/`) on Vercel, Netlify or GitHub Pages: the analysis runs in a Python server with a local database and long-running jobs, which those hosts do not run. See *Use from other devices* below. Stop the server with **Ctrl+C** in its terminal. Analyses still running when it stops are marked *interrupted* on the next start and can be retried from the failed stage.
 
-The server listens on `127.0.0.1` only and has **no login**: anyone who can reach the port can read and change every project. Do not expose it on a network.
+By default the server listens on `127.0.0.1` only and has **no login**: anyone who can reach the port can read and change every project. To let other devices in, use `-Network` or hosting with a password (see *Use from other devices*).
 
 ### Verified setup
 
@@ -84,6 +84,14 @@ The app has four pages:
 2. **Dashboard** — the seven analysis steps as one row, then charts: themes, tone, what the themes say, codes, co-occurrence, tone by theme, topics, trends and model fit.
 3. **Graphs & Patterns** — the interactive code graph, the thematic map, pattern clustering and temporal analysis. Network statistics, comparisons, the GNN and graph exports are folded under *More analysis*.
 4. **Database** — file, analysis, date, search and export controls, with tabs for files and records, the thematic analysis steps, quality and statistics, model metrics, and history and storage.
+
+### Use from other devices
+
+The app and the server must run together, and once other devices can reach them a password protects everything: set `THEMATICML_PASSWORD` and everyone signs in as `researcher` (or `THEMATICML_USER`). The browser asks once per session.
+
+- **Same Wi-Fi or office network:** `.\start.ps1 -Network` asks for a password and prints the addresses to open on a phone or laptop, such as `http://192.168.1.20:8000`. This computer must stay on, and Windows may ask to allow Python on private networks. The password travels unencrypted on the local network, so use it on networks you trust.
+- **Anywhere, over the internet:** host the whole app on a server. `render.yaml` sets it up on [Render](https://render.com): *New → Blueprint*, pick this repository, enter a password. It builds the Dockerfile, keeps the workspace on a 1 GB disk and serves over HTTPS. The disk needs a paid instance. *Starter* (512 MB) was enough in a test with the same limit: analysing the 1,201-row sample CSV peaked at 260 MB and a 7 MB thesis PDF at 290 MB; choose *standard* if very large uploads fail. Any host that runs a Docker image with a persistent disk works the same way.
+- **Vercel, Netlify or GitHub Pages** can show the pages but cannot run the server, so nothing can be created or uploaded there; the app says it is not connected. `vercel.json` only makes inner pages such as `/dashboard` open there instead of "page not found".
 
 ## Use from Python
 
@@ -201,7 +209,8 @@ GraphSAGE scored below Adamic–Adar in all 10 paired repeats (mean −0.042). F
 - **Uploads** are parsed only (HTML is never executed or fetched); file names are reduced to their base name. Parser error messages do not include local paths.
 - **Checkpoints** are loaded with `torch.load(weights_only=True)` and only from inside the workspace.
 - **Display.** Researcher-entered labels are HTML-escaped in chart tooltips.
-- **Not addressed:** no authentication or per-user permissions; the SQLite file and uploads are not encrypted at rest (use disk encryption for sensitive data); malicious archive files (for example XLSX/DOCX zip bombs) are limited only by the upload size cap.
+- **Sign-in.** Without `THEMATICML_PASSWORD` the app has no login, which is only safe on `127.0.0.1`. With it, every request except the health check needs HTTP Basic sign-in; `start.ps1 -Network` and the Docker image refuse to start without one. Use HTTPS (as Render does) beyond a trusted local network.
+- **Not addressed:** one shared password, no per-user accounts or permissions, no limit on sign-in attempts; the SQLite file and uploads are not encrypted at rest (use disk encryption for sensitive data); malicious archive files (for example XLSX/DOCX zip bombs) are limited only by the upload size cap.
 
 ## Known limitations
 
@@ -242,7 +251,9 @@ The suite covers data import for every format (including HTML article/comment ex
 
 ```bash
 docker build -t thematicml .
-docker run -p 127.0.0.1:8000:8000 -v thematicml-data:/data thematicml   # loopback only: there is no login
+docker run -p 8000:8000 -e THEMATICML_PASSWORD=choose-one -v thematicml-data:/data thematicml
 ```
 
-The image contains the classical pipeline with the sentiment, temporal, Leiden and PDF extras but not the GNN (PyTorch is large); add `gnn` to the extras in the Dockerfile to include it. The Dockerfile has not been built in this environment (the Docker engine was not running).
+The image will not start without `THEMATICML_PASSWORD`. It listens on `$PORT` when a hosting service sets one.
+
+The image contains the classical pipeline with the sentiment, temporal, Leiden and PDF extras but not the GNN (PyTorch is large); add `gnn` to the extras in the Dockerfile to include it. The image was built and run here (Docker 29.1) with a 512 MB memory limit.

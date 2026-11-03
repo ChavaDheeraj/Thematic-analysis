@@ -17,7 +17,7 @@ const NAV = [
 ];
 
 export default function App() {
-  const { toasts } = useApp();
+  const { toasts, serverDown } = useApp();
   const [newOpen, setNewOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const nav = useNavigate();
@@ -27,6 +27,7 @@ export default function App() {
       <div className="flex min-w-0 flex-1 flex-col">
         <MobileHeader onNewProject={() => setNewOpen(true)} onSettings={() => setSettingsOpen(true)} />
         <main className="min-h-0 flex-1 overflow-y-auto px-5 py-6 md:px-8">
+          {serverDown && <ServerDown />}
           <Routes>
             <Route path="/" element={<Navigate to="/upload" replace />} />
             <Route path="/upload" element={<UploadPage />} />
@@ -58,6 +59,23 @@ export default function App() {
             <span className="flex-1 leading-relaxed">{t.text}</span>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function ServerDown() {
+  return (
+    <div role="alert" className="mx-auto mb-6 flex max-w-7xl items-start gap-3 rounded-xl border border-bad/30 bg-bad/6 px-5 py-4 text-sm">
+      <span className="mt-0.5 shrink-0 text-bad"><Icon path={ICONS.alert} size={16} /></span>
+      <div>
+        <div className="font-semibold text-ink">Not connected to the ThematicML server</div>
+        <p className="mt-1 leading-relaxed text-ink2">
+          Projects, uploads and analyses run on ThematicML's own Python server, and there is none behind this page, so nothing can be created or loaded here.
+          That is what happens on a website-only host such as Vercel, with VS Code Live Server, or with a page opened from a file.
+          On your computer, run <code className="rounded bg-raised px-1 font-mono">.\start.ps1</code> in the project folder,
+          then open <a className="font-medium text-accent hover:underline" href="http://127.0.0.1:8000">http://127.0.0.1:8000</a>.
+        </p>
       </div>
     </div>
   );

@@ -1,0 +1,18 @@
+# Host the whole app (website and server) on Render: Dashboard -> New -> Blueprint -> pick this repository.
+# Render asks for THEMATICML_PASSWORD; everyone signs in as "researcher" with it.
+# The disk keeps projects, uploads and analyses across restarts and redeploys.
+services:
+  - type: web
+    name: thematicml
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: THEMATICML_PASSWORD
+        sync: false
+      - key: THEMATICML_USER
+        value: researcher
+    disk:
+      name: workspace
+      mountPath: /data
+      sizeGB: 1

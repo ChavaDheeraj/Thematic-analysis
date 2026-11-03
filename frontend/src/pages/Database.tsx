@@ -85,8 +85,9 @@ function Database() {
         {tab === "history" && <HistoryTab projectId={project!.id} runs={allRuns} />}
       </div>
       <RecordDrawer recordId={recordId} onClose={() => { setRecordId(null); if (params.get("record")) setParams({ tab }); }} />
-      {d && <CodeDrawer codeId={codeId} onClose={closeDrawers} onChanged={reload} />}
-      {d && <ThemeDrawer theme={theme} runId={run!.id} onClose={closeDrawers} onChanged={reload} codes={d.coding.table} themes={d.themes.table} />}
+      {/* while the file or analysis is switching, d still holds the previous analysis for one render */}
+      {ok && d && <CodeDrawer codeId={codeId} onClose={closeDrawers} onChanged={reload} />}
+      {ok && d && <ThemeDrawer theme={theme} runId={run!.id} onClose={closeDrawers} onChanged={reload} codes={d.coding.table} themes={d.themes.table} />}
     </div>
   );
 }

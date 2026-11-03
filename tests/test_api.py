@@ -36,6 +36,12 @@ def test_full_http_workflow(client, sample_csv):
 
     pid = client.post("/api/projects", json={"name": "API project", "description": "RQ1"}).json()["id"]
     assert client.post("/api/projects", json={"name": "API project"}).status_code == 409
+    assert client.post("/api/projects", json={"name": "   "}).status_code == 400  # spaces only would become an empty name
+    other = client.post("/api/projects", json={"name": "Second project"}).json()["id"]
+    assert client.patch(f"/api/projects/{other}", json={"name": "API project"}).status_code == 409
+    assert client.patch(f"/api/projects/{other}", json={"name": " "}).status_code == 400
+    assert client.patch(f"/api/projects/{other}", json={"name": "Second project", "description": "kept"}).json()["description"] == "kept"
+    assert client.delete(f"/api/projects/{other}").status_code == 200
 
     with open(sample_csv, "rb") as fh:
         up = client.post(f"/api/projects/{pid}/uploads", files=[("files", ("feedback.csv", fh, "text/csv"))]).json()

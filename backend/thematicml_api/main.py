@@ -6,7 +6,10 @@ exposes it over HTTP and runs analyses in a background worker thread.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import os
+import secrets
 import shutil
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
@@ -53,6 +56,34 @@ app = FastAPI(title="ThematicML", version=thematicml.__version__,
               description="Local machine-learning platform for qualitative research. No LLMs are used.")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
                    allow_methods=["*"], allow_headers=["*"])
+
+
+# A password protects the app once other devices can reach it (start.ps1 -Network, Docker, hosting).
+# Unset, the app stays open as before, which is only safe on 127.0.0.1.
+_USER = os.environ.get("THEMATICML_USER") or "researcher"
+_PASSWORD = os.environ.get("THEMATICML_PASSWORD") or None
+if os.environ.get("THEMATICML_REQUIRE_PASSWORD") == "1" and not _PASSWORD:
+    raise RuntimeError("Set THEMATICML_PASSWORD: this server can be reached from other devices and must not run without a password.")
+
+
+def _signed_in(header: str | None) -> bool:
+    if not header or not header.startswith("Basic "):
+        return False
+    try:
+        user, _, password = base64.b64decode(header[6:], validate=True).decode("utf-8").partition(":")
+    except (binascii.Error, UnicodeDecodeError):
+        return False
+    # compare both, always, so the answer takes the same time whichever part is wrong
+    return secrets.compare_digest(user.encode(), _USER.encode()) & secrets.compare_digest(password.encode(), _PASSWORD.encode())
+
+
+@app.middleware("http")
+async def _password(request: Request, call_next):
+    # the health check stays open so a hosting service can tell the app is up
+    if _PASSWORD and request.url.path != "/api/health" and not _signed_in(request.headers.get("authorization")):
+        return JSONResponse({"detail": "Sign in required"}, status_code=401,
+                            headers={"WWW-Authenticate": 'Basic realm="ThematicML", charset="UTF-8"'})
+    return await call_next(request)
 
 
 @app.exception_handler(NotFound)
@@ -152,17 +183,25 @@ def list_projects():
     return store.list_projects()
 
 
+def _project_name(p: ProjectIn, pid: str | None = None) -> str:
+    name = p.name.strip()
+    if not name:
+        raise HTTPException(400, "The project needs a name")
+    other = store.project_by_name(name)
+    if other and other["id"] != pid:
+        raise HTTPException(409, "A project with this name already exists")
+    return name
+
+
 @app.post("/api/projects")
 def create_project(p: ProjectIn):
-    if store.project_by_name(p.name.strip()):
-        raise HTTPException(409, "A project with this name already exists")
-    return store.create_project(p.name.strip(), p.description)
+    return store.create_project(_project_name(p), p.description)
 
 
 @app.patch("/api/projects/{pid}")
 def update_project(pid: str, p: ProjectIn):
     _need(store.get_project(pid), "Project")
-    store.update("projects", {"id": pid}, {"name": p.name.strip(), "description": p.description})
+    store.update("projects", {"id": pid}, {"name": _project_name(p, pid), "description": p.description})
     return store.get_project(pid)
 
 

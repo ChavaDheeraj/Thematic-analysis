@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, type Dataset, type Project, type Run } from "./api";
+import { NO_SERVER, api, type Dataset, type Project, type Run } from "./api";
 
 function load(key: string): string | null {
   try { return localStorage.getItem(`tml.${key}`); } catch { return null; }
@@ -21,6 +21,8 @@ export interface Toast { id: number; kind: "info" | "error" | "success"; text: s
 
 interface AppState {
   system: any;
+  /** The page cannot reach ThematicML's server, so nothing can be loaded or saved. */
+  serverDown: boolean;
   projects: Project[];
   project: Project | null;
   setProjectId: (id: string | null) => void;
@@ -54,6 +56,7 @@ const Ctx = createContext<AppState | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [system, setSystem] = useState<any>(null);
+  const [serverDown, setServerDown] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectIdRaw] = useState<string | null>(load("project"));
   const [datasets, setDatasets] = useState<Dataset[]>([]);
@@ -129,12 +132,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [projectId]);
 
   useEffect(() => {
-    api.get("/api/system").then(setSystem).catch(() => setSystem(null));
-    refreshProjects().catch((e) => toast(String(e.message ?? e), "error"));
+    api.get("/api/system").then(setSystem).catch((e) => { setSystem(null); setServerDown(e.message === NO_SERVER); });
+    // the banner explains a missing server; a toast would only repeat it
+    refreshProjects().catch((e) => e.message !== NO_SERVER && toast(String(e.message ?? e), "error"));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    refreshData().catch((e) => toast(String(e.message ?? e), "error"));
+    refreshData().catch((e) => e.message !== NO_SERVER && toast(String(e.message ?? e), "error"));
   }, [refreshData, toast]);
 
   // keep the selected file valid, defaulting to the newest upload
@@ -177,7 +181,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const run = runs.find((r) => r.id === runId) ?? null;
 
   const value: AppState = {
-    system, projects, project, setProjectId, datasets, datasetId, dataset, setDatasetId, runs: scopedRuns, allRuns: runs, run, runId, setRunId, openRun,
+    system, serverDown, projects, project, setProjectId, datasets, datasetId, dataset, setDatasetId, runs: scopedRuns, allRuns: runs, run, runId, setRunId, openRun,
     dateFrom, dateTo, setDateRange: (f, t) => { setDateFrom(f); setDateTo(t); },
     refreshProjects, refreshData, activeRuns, toast, toasts, theme, setTheme,
   };

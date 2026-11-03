@@ -14,8 +14,8 @@ COPY backend/ backend/
 RUN pip install --no-cache-dir ".[sentiment,temporal,leiden,reports,api]"
 COPY --from=ui /ui/dist frontend/dist
 COPY sample_data/ sample_data/
-ENV THEMATICML_HOME=/data THEMATICML_FRONTEND=/app/frontend/dist
+ENV THEMATICML_HOME=/data THEMATICML_FRONTEND=/app/frontend/dist THEMATICML_REQUIRE_PASSWORD=1
 VOLUME /data
 EXPOSE 8000
-# 0.0.0.0 is needed inside the container; publish it on the host loopback only (see README): the app has no authentication
-CMD ["uvicorn", "thematicml_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+# reachable from outside the container, so THEMATICML_PASSWORD is required; hosting services pass their port in $PORT
+CMD ["sh", "-c", "exec uvicorn thematicml_api.main:app --host 0.0.0.0 --port ${PORT:-8000} --no-access-log"]

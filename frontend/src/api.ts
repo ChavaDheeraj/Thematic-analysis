@@ -23,6 +23,11 @@ export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 
+/** The page was served by something other than ThematicML's server: a website-only host (Vercel), Live Server, a saved file, or `npm run dev` with the server stopped. */
+export const NO_SERVER = "Not connected to the ThematicML server, so nothing can be saved here. On your computer run .\\start.ps1 and open http://127.0.0.1:8000.";
+// ThematicML answers every request, errors included, in JSON; anything else came from another server
+const fromThematicML = (res: Response) => (res.headers.get("content-type") ?? "").includes("application/json");
+
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
   const init: RequestInit = { method, headers: {} };
   if (body instanceof FormData) init.body = body;
@@ -30,7 +35,9 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
     init.body = JSON.stringify(body);
     (init.headers as Record<string, string>)["Content-Type"] = "application/json";
   }
-  const res = await fetch(url, init);
+  let res: Response;
+  try { res = await fetch(url, init); } catch { throw new ApiError(0, NO_SERVER); }
+  if (!fromThematicML(res)) throw new ApiError(res.status, NO_SERVER);
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`;
     try {
@@ -59,8 +66,10 @@ export function qs(params: Record<string, string | number | boolean | null | und
 
 /** Trigger a browser download for a GET endpoint that returns a file. */
 export async function download(url: string): Promise<void> {
-  const res = await fetch(url);
+  let res: Response;
+  try { res = await fetch(url); } catch { throw new ApiError(0, NO_SERVER); }
   if (!res.ok) {
+    if (!fromThematicML(res)) throw new ApiError(res.status, NO_SERVER);
     let msg = res.statusText;
     try { msg = (await res.json()).detail ?? msg; } catch { /* ignore */ }
     throw new ApiError(res.status, msg);
