@@ -32,8 +32,12 @@ def _inline_threads() -> None:
 
 
 async def save() -> None:
-    if _persist is not None:
+    if not callable(_persist):
+        return
+    try:
         await _persist()
+    except Exception:  # a failed save (storage full, private mode) must not stop the analysis that asked for it
+        traceback.print_exc()
 
 
 class JobQueue:

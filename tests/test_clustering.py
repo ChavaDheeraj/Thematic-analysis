@@ -73,3 +73,23 @@ def test_umass_simple():
     B = sp.csc_matrix(np.array([[1, 1], [1, 1], [1, 0]], dtype=float))
     # D(w1,w0)=2, D(w0)=3 -> log(3/3)=0
     assert umass_coherence(B, [0, 1]) == pytest.approx(0.0)
+
+
+def test_nmf_start_is_passed_in_c_order(monkeypatch):
+    """scikit-learn 1.8 (browser edition) returns a Fortran-ordered NNDSVDa start when passages < terms and then
+    fails with 'ndarray is not C-contiguous'. Simulate that start: topics must still be found, identical to before."""
+    import sklearn.decomposition._nmf as nmf_mod
+    from sklearn.decomposition import NMF
+    from sklearn.feature_extraction.text import TfidfVectorizer
+
+    from thematicml.topics import _fit_nmf
+
+    rng = np.random.default_rng(0)
+    words = [f"w{i}" for i in range(120)]
+    X = TfidfVectorizer().fit_transform([" ".join(rng.choice(words, 10)) for _ in range(6)])  # fewer passages than terms
+    expected = NMF(n_components=4, init="nndsvda", random_state=7, max_iter=400).fit_transform(X)
+    real = nmf_mod._initialize_nmf
+    monkeypatch.setattr(nmf_mod, "_initialize_nmf", lambda *a, **k: tuple(np.asfortranarray(m) for m in real(*a, **k)))
+    model, W = _fit_nmf(X, 4, 7)
+    np.testing.assert_array_equal(W, expected)
+    assert model.components_.shape == (4, X.shape[1])

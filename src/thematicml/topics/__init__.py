@@ -29,6 +29,25 @@ def umass_coherence(binary: sp.csc_matrix, term_ids: list[int]) -> float | None:
     return float(total / pairs) if pairs else None
 
 
+def _fit_nmf(X: sp.csr_matrix, k: int, random_state: int):
+    """NMF with the NNDSVDa start, passed in C order.
+
+    scikit-learn 1.8 (the browser edition's) can return that start in Fortran order when there are fewer
+    passages than terms, and its coordinate-descent solver then fails with "ndarray is not C-contiguous".
+    The start is the same one ``init="nndsvda"`` computes, so results do not change.
+    """
+    from sklearn.decomposition import NMF  # imported on first use: slow to load in the browser edition
+
+    model = NMF(n_components=k, init="nndsvda", random_state=random_state, max_iter=400)
+    try:
+        from sklearn.decomposition._nmf import _initialize_nmf
+    except ImportError:  # private helper; without it, let scikit-learn initialise
+        return model, model.fit_transform(X)
+    W0, H0 = (np.ascontiguousarray(a) for a in _initialize_nmf(X, k, init="nndsvda", random_state=random_state))
+    model.set_params(init="custom")
+    return model, model.fit_transform(X, W=W0, H=H0)
+
+
 def discover_topics(
     X_tfidf: sp.csr_matrix,
     X_counts: sp.csr_matrix,
@@ -47,10 +66,7 @@ def discover_topics(
         vocab = np.asarray(vocab, dtype=object)[keep]
     k = max(2, min(n_topics, X_tfidf.shape[1] - 1, X_tfidf.shape[0] - 1))
     if method == "nmf":
-        from sklearn.decomposition import NMF  # imported on first use: slow to load in the browser edition
-
-        model = NMF(n_components=k, init="nndsvda", random_state=random_state, max_iter=400)
-        W = model.fit_transform(X_tfidf)
+        model, W = _fit_nmf(X_tfidf, k, random_state)
         objective = {"reconstruction_err": round(float(model.reconstruction_err_), 4)}
     else:
         from sklearn.decomposition import LatentDirichletAllocation  # imported on first use: slow to load in the browser edition
