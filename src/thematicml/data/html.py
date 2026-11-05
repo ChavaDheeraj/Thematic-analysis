@@ -12,10 +12,15 @@ Podcast and interview transcripts, whose paragraphs open with a speaker label
 timestamp are cut from the text, so speaker names are not stored either; names
 spoken inside the conversation stay, they are part of what was said.
 
+Pages with little or no article text (index and home pages, or sites that build their text with
+JavaScript) are still read: the rest of the page's text blocks, and prose kept in its data scripts
+(JSON-LD ``articleBody``, a framework's page data), become records with ``source_kind`` "page".
+
 Only the HTML markup is parsed; no scripts are executed and nothing is fetched.
 """
 from __future__ import annotations
 
+import json
 import re
 from collections import Counter
 from typing import NamedTuple
@@ -32,6 +37,10 @@ COMMENT = {"comment", "comments", "comment-content", "comment-body", "commentlis
 # comment forms and their notices are not comments
 RESPOND = {"respond", "comment-respond", "comment-reply-title", "comment-form", "commentform", "logged-in-as", "comment-notes", "reply-title"}
 MIN_WORDS = 4
+# below this many words of article text the rest of the page is read as well
+THIN_ARTICLE = 50
+# below this many words, also after reading the page's other paragraphs, every block of visible text is read
+NO_ARTICLE = 20
 # Main-content widening (see _widen): a paragraph this long, mostly not link text, is article prose rather than a
 # caption, teaser or notice; a wider container must add this share of new prose to the prose already held.
 PROSE_WORDS = 20
@@ -310,6 +319,84 @@ def page_slug(title: str, fallback: str) -> str:
     return (slug[:40].rstrip("-") or "page")
 
 
+def _prose(t: str) -> bool:
+    return len(t.split()) >= MIN_WORDS and not t.startswith(("http://", "https://")) and \
+        sum(ch.isalpha() for ch in t) >= 0.6 * len(t.replace(" ", ""))
+
+
+# elements that start a new line of text; inline elements (span, a, b, em ...) join the line they sit in
+LINE_BLOCKS = {"body", "main", "article", "section", "div", "p", "li", "dd", "dt", "td", "th", "blockquote", "pre", "figcaption",
+               "h1", "h2", "h3", "h4", "h5", "h6"}
+
+
+def _visible_blocks(soup) -> list[str]:
+    """The page's visible text, one entry per block element, for pages that keep their prose in plain <div>s:
+    sidebars, sharing widgets, comment forms and comments (read separately) are left out.
+
+    A box named like boilerplate ("widget", "sidebar") counts as boilerplate only when it holds under 30% of the
+    page's text: some templates (Blogger) wrap the post itself in a "widget" inside a "has-sidebar" layout.
+    """
+    root = soup.body or soup
+    total = len(root.get_text(" ", strip=True)) or 1
+    sizes: dict[int, int] = {}
+
+    def small(tag) -> bool:
+        if id(tag) not in sizes:
+            sizes[id(tag)] = len(tag.get_text(" ", strip=True))
+        return sizes[id(tag)] < 0.3 * total
+
+    parts: dict[int, list[str]] = {}
+    order: list[int] = []
+    for string in root.find_all(string=True):
+        if type(string).__name__ != "NavigableString" or not string.strip():
+            continue  # HTML comments, doctype, CDATA
+        block, skip = None, False
+        for anc in string.parents:
+            tokens = _tokens(anc)
+            if anc.name == "aside" or tokens & (RESPOND | COMMENT) or (tokens & NOISE and small(anc)):
+                skip = True
+                break
+            if block is None and anc.name in LINE_BLOCKS:
+                block = anc
+        if skip or block is None:
+            continue
+        key = id(block)
+        if key not in parts:
+            parts[key] = []
+            order.append(key)
+        parts[key].append(string.strip())
+    return [t for t in (_clean(EMAIL_PLACEHOLDER.sub(" ", " ".join(parts[k]))) for k in order) if _prose(t)]
+
+
+def _embedded_texts(soup) -> list[str]:
+    """Prose kept in a page's data scripts: sites that build their text with JavaScript often leave it there."""
+    from bs4 import BeautifulSoup
+
+    out: list[str] = []
+
+    def walk(v, depth=0):
+        if depth > 40:
+            return
+        if isinstance(v, dict):
+            for x in v.values():
+                walk(x, depth + 1)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x, depth + 1)
+        elif isinstance(v, str) and len(v.split()) >= 12:
+            text = BeautifulSoup(v, "html.parser").get_text("\n") if "<" in v else v
+            out.extend(t for t in (_clean(part) for part in re.split(r"\n+", text)) if _prose(t))
+
+    for script in soup.find_all("script"):
+        if "json" not in (script.get("type") or "").lower() and script.get("id") != "__NEXT_DATA__":
+            continue
+        try:
+            walk(json.loads(script.string or script.get_text() or ""))
+        except (ValueError, RecursionError):
+            continue
+    return out
+
+
 def extract_html(raw: bytes, fallback_name: str = "page") -> tuple[list[dict], list[str], dict]:
     """Return (rows, warnings, page_info). Each row has text and provenance fields."""
     try:
@@ -324,6 +411,7 @@ def extract_html(raw: bytes, fallback_name: str = "page") -> tuple[list[dict], l
     published = meta("article:published_time") or meta("datePublished")
     site = meta("og:site_name")
     canonical = (soup.find("link", rel="canonical") or {}).get("href") or meta("og:url")
+    embedded = _embedded_texts(soup)
     for t in soup(DROP_TAGS):
         t.decompose()
     for t in [t for t in soup.find_all(True) if t.attrs and _tokens(t) & EMBEDS]:
@@ -429,12 +517,29 @@ def extract_html(raw: bytes, fallback_name: str = "page") -> tuple[list[dict], l
         rows.append({"respondent_id": rid, "text": text, "source_kind": "comment", "section": "Reader comments", "block": None,
                      "published": tm.get("datetime") if tm is not None and tm.get("datetime") else None, "page_title": title})
 
+    # Little or no article text (an index or home page, prose kept in plain <div>s, or text that loads with
+    # JavaScript): read the page's other paragraphs and its data scripts; if that is still thin, every block of
+    # visible text; if there is nothing at all, its description and title.
+    page_words = 0
+    if main_words < THIN_ARTICLE:
+        seen = {r["text"] for r in rows}
+        found = [lf.text for lf in leaves if lf.comment is None and lf.tag.name not in HEADINGS and _prose(lf.text)
+                 and not (_is_call_to_action(lf.text) or _is_toc_entry(lf.tag, lf.words, canonical) or _is_link_entry(lf.tag, lf.text, lf.words)
+                          or any(_tokens(a) & NOISE for a in [lf.tag, *lf.tag.parents]))] + embedded
+        if main_words + sum(len(t.split()) for t in found if t not in seen) < NO_ARTICLE:
+            found += _visible_blocks(soup)
+        if not found and not rows:
+            found = [t for t in (_clean(meta("og:description") or meta("description") or ""), title) if t]
+        for text in found:
+            if text in seen:
+                continue
+            seen.add(text)
+            n_block += 1
+            page_words += len(text.split())
+            rows.append({"respondent_id": f"{slug}:author", "text": text, "source_kind": "page", "section": None,
+                         "block": n_block, "published": published, "page_title": title})
+
     warnings = []
-    if main_words < 300:
-        warnings.append(
-            f"Only {main_words} words of article text were found in this page. It may be an index or home page, "
-            "or its content may load with JavaScript and was not saved in the file."
-        )
     n_speakers = len(speakers) if transcript_rows else 0
     if n_speakers:
         warnings.append(
@@ -443,6 +548,6 @@ def extract_html(raw: bytes, fallback_name: str = "page") -> tuple[list[dict], l
             "removed from the text."
         )
     n_comments = len(comment_ids)
-    info = {"title": title, "site": site, "url": canonical, "published": published, "article_words": main_words,
+    info = {"title": title, "site": site, "url": canonical, "published": published, "article_words": main_words, "page_words": page_words,
             "comments": n_comments, "speakers": n_speakers, "encoding": enc}
     return rows, warnings, info

@@ -64,3 +64,43 @@ def test_contents_list_mirroring_headings_is_dropped():
     texts = [r["text"] for r in rows]
     assert len(texts) == 2 and texts[0].startswith("If a situation feels wrong")
     assert rows[0]["section"] == "1. Trust Your Gut When Something Feels Off"
+
+
+INDEX = """<html><head><title>Travel stories</title></head><body><nav><a href="/">Home</a> <a href="/about">About us</a></nav>
+<div class="grid">
+  <div class="card"><h3><a href="/a">Ten days in Kyoto</a></h3><span>Walking the temples alone at dawn was the calmest I have felt in years.</span></div>
+  <div class="card"><h3><a href="/b">Night trains</a></h3><span>Sleeping on a night train across Vietnam felt safer than I expected it to.</span></div>
+</div><footer><p>Copyright footer text that should never be imported here.</p></footer></body></html>"""
+
+JS_SHELL = """<html><head><title>My solo trip</title></head><body><div id="root"></div>
+<script id="__NEXT_DATA__" type="application/json">{"props": {"post": {"title": "My solo trip",
+ "body": "<p>I spent three weeks travelling alone through Peru and learned to trust strangers again.</p><p>The hardest part was eating alone on the first night, but by the end I loved it.</p>"}}}</script>
+<script>window.app = "loads the article with JavaScript"</script></body></html>"""
+
+
+def test_index_page_without_article_text_is_still_read():
+    rows, warnings, info = extract_html(INDEX.encode(), "index")
+    # the teasers are not paragraphs, so the page's visible lines are read (navigation and footer stay out)
+    assert [r["text"] for r in rows] == ["Ten days in Kyoto", "Walking the temples alone at dawn was the calmest I have felt in years.",
+                                         "Sleeping on a night train across Vietnam felt safer than I expected it to."]
+    assert {r["source_kind"] for r in rows} == {"page"} and info["article_words"] == 0
+    assert not any("words of article text" in w for w in warnings)
+
+
+def test_text_that_loads_with_javascript_is_read_from_the_page_data():
+    rows, warnings, _ = extract_html(JS_SHELL.encode(), "shell")
+    assert [r["text"] for r in rows] == ["I spent three weeks travelling alone through Peru and learned to trust strangers again.",
+                                         "The hardest part was eating alone on the first night, but by the end I loved it."]
+    assert warnings == []
+
+
+def test_a_page_with_almost_no_text_still_gives_a_record():
+    rows, _, _ = extract_html(b"<html><head><title>Diary of a solo traveller</title></head><body></body></html>", "x")
+    assert [r["text"] for r in rows] == ["Diary of a solo traveller"]
+    rows, _, _ = extract_html(b"<html><head><meta name='description' content='Notes from the road'></head><body></body></html>", "x")
+    assert [r["text"] for r in rows] == ["Notes from the road", "x"]
+
+
+def test_a_real_article_is_not_padded_with_the_rest_of_the_page():
+    rows, _, _ = extract_html(SPLIT.encode(), "split")
+    assert {r["source_kind"] for r in rows} == {"article"}

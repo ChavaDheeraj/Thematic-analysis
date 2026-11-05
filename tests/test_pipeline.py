@@ -190,7 +190,7 @@ def test_multi_dataset_comparison(tmp_path, sample_csv):
 
     p = Project("multi", workspace=tmp_path)
     d1 = p.load(sample_csv)
-    d2 = p.load(sample_csv)
+    d2 = p.load(sample_csv, allow_duplicate=True)  # two waves of one export
     cfg = AnalysisConfig(text_col="response_text", id_col="respondent_id", sentiment=False, temporal=False)
     r1 = p.analyze(cfg, [d1])
     r2 = p.analyze(cfg.model_copy(update={"n_codes": 20}), [d2])
@@ -298,7 +298,7 @@ def test_passages_repeated_across_uploads_are_analysed_once(tmp_path):
         (tmp_path / name).write_text(page, encoding="utf-8")
     (tmp_path / "other.txt").write_text("Yes.\n\nA different story about meeting other women in a hostel kitchen and cooking together.", encoding="utf-8")
     p = Project("dedupe", workspace=tmp_path / "ws")
-    ids = [p.load(tmp_path / n) for n in ("a.txt", "copy.txt", "other.txt")]
+    ids = [p.load(tmp_path / n, allow_duplicate=True) for n in ("a.txt", "copy.txt", "other.txt")]
     for did in ids:
         p.validate(dataset_id=did)
     res = p.analyze(AnalysisConfig(temporal=False, sentiment=False, n_codes=5, min_code_support=1), dataset_ids=ids)

@@ -61,10 +61,10 @@ def test_docx_and_pdf(tmp_path):
     assert pf["source_page"].iloc[0] == 1
 
 
-def test_unsupported_format(tmp_path):
-    (tmp_path / "x.xls").write_text("x")
+def test_files_without_text_are_refused(tmp_path):
+    (tmp_path / "x.png").write_bytes(b"\x89PNG\r\n\x1a\n" + bytes(64))
     with pytest.raises(LoadError):
-        load_file(tmp_path / "x.xls")
+        load_file(tmp_path / "x.png")  # more cases in test_formats.py
 
 
 def test_validation_counts():
@@ -155,7 +155,7 @@ def test_html_article_and_comments(tmp_path):
     joined = " ".join(df["text"])
     for leaked in ("Jane Private Name", "Share this post", "Subscribe", "Leave a Comment", "Save my name", "Copyright", "Home page", "not text"):
         assert leaked not in joined
-    assert lf.structured is False and lf.warnings  # under 300 article words -> warning
+    assert lf.structured is False and lf.warnings == []  # a short article is read without a warning
     m = suggest_mapping(df)
     assert m["text_col"] == "text" and m["id_col"] == "respondent_id" and m["group_col"] == "source_kind"
 

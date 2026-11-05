@@ -7,8 +7,9 @@ import { GnnUploadCard } from "../components/Gnn";
 import { Icon, ICONS } from "../components/icons";
 import { useApp, useFetch } from "../state";
 
-const ACCEPT = ".csv,.xlsx,.txt,.docx,.pdf,.json,.jsonl,.html,.htm";
-const FORMATS = "CSV · XLSX · TXT · DOCX · PDF · JSON · JSONL · HTML";
+// examples shown on the drop zone; any file with readable text is accepted, audio and video are not
+const FORMATS = "TXT · DOCX · PDF · HTML · CSV · XLSX · JSON · SRT · VTT · RTF · ODT · PPTX · EPUB · MD · XML";
+const isMedia = (f: File) => /^(audio|video)\//.test(f.type) || /\.(mp3|wav|m4a|aac|flac|ogg|oga|opus|wma|aiff?|amr|midi?|mp4|m4v|mov|avi|mkv|webm|wmv|flv|mpe?g|3gp|3g2|m2ts|mts|vob|ogv)$/i.test(f.name);
 const usable = (d: Dataset | null) => d?.status === "ready" || d?.status === "analysed";
 
 export default function UploadPage() {
@@ -72,6 +73,7 @@ function DropZone({ onDone, onCancel }: { onDone: () => void; onCancel?: () => v
     if (!files.length) return;
     if (files.length > 1) { setError("One file at a time: choose or drop a single file."); return; }
     const f = files[0];
+    if (isMedia(f)) { setError(`${f.name}: Audio and video files are not accepted. Upload a transcript of the recording instead (for example .txt, .docx, .srt or .vtt).`); return; }
     setBusy(f.name);
     setError(null);
     const fd = new FormData();
@@ -114,13 +116,14 @@ function DropZone({ onDone, onCancel }: { onDone: () => void; onCancel?: () => v
           <>
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-accent/10 text-accent"><Icon path={ICONS.upload} size={24} /></div>
             <div className="mt-4 text-[15px] font-semibold text-ink">Drop a file here, or click to choose one</div>
-            <div className="mt-1 text-sm text-muted">An article, transcript, report or survey export — one file per analysis</div>
+            <div className="mt-1 text-sm text-muted">Any text file: an article, transcript, report or survey export — one file per analysis</div>
             <div className="mt-4 flex flex-wrap justify-center gap-1.5">
               {FORMATS.split(" · ").map((x) => <span key={x} className="rounded-md bg-raised px-2 py-0.5 text-[11px] font-medium text-ink2">{x}</span>)}
+              <span className="px-1 py-0.5 text-[11px] text-muted">and any other text file · no audio or video</span>
             </div>
           </>
         )}
-        <input ref={input} type="file" accept={ACCEPT} className="hidden" onChange={(e) => { upload(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
+        <input ref={input} type="file" className="hidden" onChange={(e) => { upload(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
       </div>
       {error && <ErrorBox error={error} />}
       {onCancel && !busy && <Button small kind="ghost" onClick={onCancel}>Keep the current file</Button>}

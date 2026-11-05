@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS datasets (
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     filename TEXT NOT NULL, format TEXT NOT NULL, size_bytes INTEGER, uploaded_at TEXT NOT NULL,
     original_path TEXT NOT NULL, encoding TEXT, structured INTEGER DEFAULT 1, columns TEXT, n_rows INTEGER,
-    mapping TEXT, status TEXT NOT NULL, quality TEXT, warnings TEXT, error TEXT
+    mapping TEXT, status TEXT NOT NULL, quality TEXT, warnings TEXT, error TEXT, sha256 TEXT
 );
 CREATE TABLE IF NOT EXISTS records (
     id INTEGER PRIMARY KEY AUTOINCREMENT, dataset_id TEXT NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,
@@ -133,6 +133,9 @@ class Store:
         with self.connect() as con:
             con.executescript(SCHEMA)
             con.execute("INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
+            # columns added after the first release; workspaces created earlier get them here
+            if "sha256" not in {r[1] for r in con.execute("PRAGMA table_info(datasets)")}:
+                con.execute("ALTER TABLE datasets ADD COLUMN sha256 TEXT")
         from thematicml.gnn.service import ensure_schema
 
         ensure_schema(self)

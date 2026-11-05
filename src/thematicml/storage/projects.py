@@ -143,8 +143,9 @@ class Project:
         self.id = self.info["id"]
         self.dataset_ids: list[str] = []
 
-    def load(self, path: str | Path) -> str:
-        ds = import_file(self.store, self.id, path)
+    def load(self, path: str | Path, allow_duplicate: bool = False) -> str:
+        """Upload a file. A file the project already holds is refused unless ``allow_duplicate`` (two waves of one export)."""
+        ds = import_file(self.store, self.id, path, allow_duplicate=allow_duplicate)
         if ds["status"] == "failed":
             raise ValueError(f"Could not load {path}: {ds['error']}")
         self.dataset_ids.append(ds["id"])

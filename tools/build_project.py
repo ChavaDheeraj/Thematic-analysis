@@ -62,7 +62,7 @@ def main(argv=None) -> int:
             print(f"skip  {path.name} (same file as {known[digest]})")
             continue
         try:
-            did = project.load(path)
+            did = project.load(path, allow_duplicate=True)  # identical files are skipped above; same-named files in different folders are different pages
         except ValueError as exc:
             print(f"FAIL  {path.name}: {exc}")
             continue

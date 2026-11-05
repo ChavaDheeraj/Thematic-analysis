@@ -56,14 +56,21 @@ Checked on Windows 11 with Python 3.14.2, Node 24, pandas 3.0, scikit-learn 1.9,
 
 ### Supported files
 
+Any file that holds readable text is accepted, whatever its extension (or none); the reader is chosen from the file's content as well as its name, so a mislabelled file still reads correctly. **Audio and video are not accepted** (upload a transcript instead), and neither are images, programs and archives, which hold no text to analyse.
+
 | Format | Becomes |
 |---|---|
-| CSV, XLSX (first sheet), JSON (list of objects, or an object holding one list), JSONL | one record per row; you map text, ID, timestamp, group and label columns |
-| TXT, DOCX (paragraphs; tables are skipped with a warning) | one record per paragraph, with paragraph number |
+| CSV, TSV, XLSX (first sheet), JSON (list of objects, or an object holding one list), JSONL | one record per row; you map text, ID, timestamp, group and label columns |
+| TXT and any other plain text (Markdown, logs, notes, UTF-8, Windows-1252 or UTF-16), DOCX (tables are skipped with a warning), ODT, RTF, XML, EPUB | one record per paragraph |
+| PPTX | one record per slide |
+| SRT, WebVTT subtitles | one record per passage of consecutive captions (timings and cue numbers removed, the first caption's start time kept) |
 | PDF (text layer only, no OCR) | one record per reconstructed paragraph, with section heading and page: lines are re-joined across line and page breaks (hyphenation repaired), running headers/footers, page numbers, table rows, captions, contents pages and back matter (acknowledgements, funding, author notes) are dropped, and the text stops at the reference list; every removal is counted in the upload warnings |
-| HTML (saved web page) | one record per article paragraph plus one per reader comment; navigation, sidebars, share widgets, comment forms and duplicated contents lists are dropped; articles split across sibling containers are joined; respondent IDs are pseudonymous (`<page>:author`, `<page>:comment-<n>`) and commenter names are not stored. **Transcripts** (podcast or interview pages with ≥ 5 `Name:` turns) become one record per turn with respondent `<page>:speaker-<n>`; names and timestamps are not stored |
+| HTML (saved web page) | one record per article paragraph plus one per reader comment; navigation, sidebars, share widgets, comment forms and duplicated contents lists are dropped; articles split across sibling containers are joined; respondent IDs are pseudonymous (`<page>:author`, `<page>:comment-<n>`) and commenter names are not stored. **Transcripts** (podcast or interview pages with ≥ 5 `Name:` turns) become one record per turn with respondent `<page>:speaker-<n>`; names and timestamps are not stored. **Pages with little article text** (index pages, posts kept in plain `<div>`s, sites that load their text with JavaScript) are still read: their other paragraphs, prose in their data scripts, and if need be every block of visible text become records of kind `page` |
+| DOC, XLS, PPT (older Office formats) | text recovered on a best-effort basis, one record per paragraph, with a warning; saving as DOCX/XLSX/PPTX gives a more faithful import |
 
-Legacy `.xls` and TSV are not supported. Corrupted or empty files are kept as *failed* uploads with the parser's reason. The default upload limit is 200 MB (Settings).
+**Duplicates.** A project accepts each file once: uploading a file it already holds (same content, under any name) or another file with the same name is refused with a message, and nothing is added. Failed uploads do not count, and other projects may hold the same file. From Python, `Project.load(path, allow_duplicate=True)` loads a file twice on purpose (for example two waves of one export).
+
+Corrupted files are kept as *failed* uploads with the parser's reason. The default upload limit is 200 MB (Settings).
 
 **Other languages.** Text features, stopwords and sentiment are English-only. Every record is screened with an offline stopword-profile detector (en, pt, es, fr, de, it, nl, id); records clearly in another language are reported in the quality summary and, with *Other languages → Exclude* at mapping time, set aside with the reason `non_english` (English abstracts of foreign-language papers are kept). **Repeated uploads.** When a run includes several datasets, a passage (≥ 8 words) that the same respondent already contributed through another upload — e.g. the same page saved twice — is analysed once; the count is shown as a warning (turn off with `dedupe_across_datasets`).
 

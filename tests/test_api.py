@@ -134,3 +134,40 @@ def test_full_http_workflow(client, sample_csv):
     assert client.get(f"/api/projects/{pid}/backup").status_code == 200
     assert client.delete(f"/api/runs/{run2['id']}").status_code == 200
     assert client.get(f"/api/runs/{run2['id']}").status_code == 404
+
+
+def test_duplicate_uploads_are_refused(client, sample_csv, tmp_path):
+    pid = client.post("/api/projects", json={"name": "Duplicates"}).json()["id"]
+    up = lambda name, data: client.post(f"/api/projects/{pid}/uploads", files=[("files", (name, data, "text/plain"))]).json()[0]  # noqa: E731
+    data = sample_csv.read_bytes()
+    first = up("feedback.csv", data)
+    assert first["status"] == "uploaded"
+    again = up("feedback.csv", data)
+    assert "id" not in again and again["status"] == "failed" and again["error"] == "This file already exists in this project. It was not added again."
+    renamed = up("copy of feedback.csv", data)
+    assert "id" not in renamed and "already exists in this project (uploaded as “feedback.csv”)" in renamed["error"]
+    same_name = up("FEEDBACK.csv", b"id,text\n1,A different file that happens to have the same name as the first.\n")
+    assert "id" not in same_name and "same name" not in same_name["error"] and "name already exists" in same_name["error"]
+    assert len(client.get(f"/api/projects/{pid}/datasets").json()) == 1
+    # a failed upload holds no records, so the file can be sent again
+    broken = up("notes.json", b"{not json")
+    assert broken["status"] == "failed" and broken["id"]
+    assert up("notes.json", b'[{"text": "Fixed file with a proper list of records in it."}]')["status"] == "uploaded"
+    # another project may hold the same file
+    other = client.post("/api/projects", json={"name": "Duplicates elsewhere"}).json()["id"]
+    assert client.post(f"/api/projects/{other}/uploads", files=[("files", ("feedback.csv", data, "text/csv"))]).json()[0]["status"] == "uploaded"
+    # uploads from before fingerprints were stored are still recognised
+    import thematicml_api.main as main
+
+    main.store.update("datasets", {"id": first["id"]}, {"sha256": None})
+    assert "already exists" in up("third name.csv", data)["error"]
+
+
+def test_audio_video_and_any_text_type(client):
+    pid = client.post("/api/projects", json={"name": "Formats"}).json()["id"]
+    up = lambda name, data: client.post(f"/api/projects/{pid}/uploads", files=[("files", (name, data, "application/octet-stream"))]).json()[0]  # noqa: E731
+    assert "Audio and video" in up("interview.mp3", b"ID3\x03\x00\x00\x00rest")["error"]
+    assert "Audio and video" in up("interview.mp4", b"\x00\x00\x00\x18ftypisom")["error"]
+    ok = up("field notes.md", "# Day one\n\nTravelling alone taught me to trust my own judgement in every new city.".encode())
+    assert ok["status"] == "uploaded" and ok["n_rows"] == 2
+    assert up("captions.vtt", b"WEBVTT\n\n00:01.000 --> 00:04.000\nWelcome to the show about travelling alone.\n")["status"] == "uploaded"
