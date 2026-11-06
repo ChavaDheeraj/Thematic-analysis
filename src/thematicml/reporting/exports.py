@@ -131,6 +131,14 @@ def report_model(store: Store, run_id: str) -> dict:
             ["Total words", ov["total_words"]], ["Mean / median words per record", f"{ov['mean_words_per_record']} / {ov['median_words_per_record']}"],
         ]),
     ]))
+    if len(ov["datasets"]) > 1:
+        segs = load_segments(store, run_id)
+        per = segs.groupby("filename").agg(records=("record_id", "nunique"), passages=("segment_id", "size")).sort_index()
+        sections.append(("Files analysed together", [
+            ("p", f"One thematic analysis of {len(ov['datasets'])} files: the codes, categories, themes, thematic map and statistics in this "
+                  "report cover all of them. Passages that the same source repeated in another file are analysed once."),
+            ("table", ["File", "Records analysed", "Passages"], [[f, int(r.records), int(r.passages)] for f, r in per.iterrows()]),
+        ]))
     sections.append(("Research questions", [("p", project.get("description") or "No research questions were recorded for this project.")]))
     cleaned = cleaned_view(store, run_id, size=1)
     sections.append(("Cleaned dataset", [

@@ -2,15 +2,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, fmt, type Dataset, type Mapping, type Run } from "../api";
-import { Badge, Button, Card, Disclosure, Empty, ErrorBox, Field, Loading, PageHeader, PctStat, Stat, cx, inputCls } from "../components/ui";
+import { Badge, Button, Card, Disclosure, Empty, ErrorBox, Field, Loading, PageHeader, PctStat, Stat, cx, inputBase, inputCls } from "../components/ui";
 import { GnnUploadCard } from "../components/Gnn";
 import { Icon, ICONS } from "../components/icons";
-import { useApp, useFetch } from "../state";
+import { ALL_FILES, useApp, useFetch } from "../state";
 
 // examples shown on the drop zone; any file with readable text is accepted, audio and video are not
 const FORMATS = "TXT · DOCX · PDF · HTML · CSV · XLSX · JSON · SRT · VTT · RTF · ODT · PPTX · EPUB · MD · XML";
 const isMedia = (f: File) => /^(audio|video)\//.test(f.type) || /\.(mp3|wav|m4a|aac|flac|ogg|oga|opus|wma|aiff?|amr|midi?|mp4|m4v|mov|avi|mkv|webm|wmv|flv|mpe?g|3gp|3g2|m2ts|mts|vob|ogv)$/i.test(f.name);
 const usable = (d: Dataset | null) => d?.status === "ready" || d?.status === "analysed";
+const MEDIA = "Audio and video files are not accepted. Upload a transcript of the recording instead (for example .txt, .docx, .srt or .vtt).";
 
 export default function UploadPage() {
   const { project } = useApp();
@@ -21,18 +22,26 @@ export default function UploadPage() {
 }
 
 function UploadFlow() {
-  const { dataset: ds, runs } = useApp();
-  const [replacing, setReplacing] = useState(false);
-  const settings = useRunSettings(); // kept while files change, so one codebook can be applied file after file
+  const { dataset, datasets, allFiles, runs } = useApp();
+  const [adding, setAdding] = useState(false);
+  const [notes, setNotes] = useState<string[]>([]); // files of the last upload that were not added, or not readable
+  const settings = useRunSettings(); // kept while files change, so one codebook can be applied to every analysis
+  const files = allFiles ? datasets : dataset ? [dataset] : [];
   return (
     <div className="mx-auto max-w-4xl">
-      <PageHeader title="Upload & analyse" desc="Choose one file. ThematicML reads it, codes it, and finds its themes and tone on this machine, then opens the dashboard." />
-      {!ds || replacing ? (
+      <PageHeader title="Upload & analyse" desc="Add one file or many. ThematicML reads them, codes them and finds their themes and tone on this machine: all your files together as one thematic analysis, or one file on its own." />
+      {notes.length > 0 && !adding && files.length > 0 && (
+        <div className="mb-4 space-y-2">
+          {notes.map((n) => <ErrorBox key={n} error={n} />)}
+          <Button small kind="ghost" onClick={() => setNotes([])}>Dismiss</Button>
+        </div>
+      )}
+      {!files.length || adding ? (
         <>
-          <DropZone onDone={() => setReplacing(false)} onCancel={ds ? () => setReplacing(false) : undefined} />
+          <DropZone onDone={(problems) => { setAdding(false); setNotes(problems); }} onCancel={files.length ? () => setAdding(false) : undefined} />
           <HowItWorks />
         </>
-      ) : <ConfigureAndRun key={ds.id} ds={ds} runs={runs} s={settings} onReplace={() => setReplacing(true)} />}
+      ) : <ConfigureAndRun key={allFiles ? ALL_FILES : dataset!.id} ds={allFiles ? null : dataset} files={files} runs={runs} s={settings} onAdd={() => setAdding(true)} />}
     </div>
   );
 }
@@ -62,39 +71,50 @@ function HowItWorks() {
 
 // ---------------------------------------------------------------- 1 · file
 
-function DropZone({ onDone, onCancel }: { onDone: () => void; onCancel?: () => void }) {
+function DropZone({ onDone, onCancel }: { onDone: (problems: string[]) => void; onCancel?: () => void }) {
   const { project, refreshData, setDatasetId, toast } = useApp();
   const [drag, setDrag] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<string[]>([]);
   const input = useRef<HTMLInputElement>(null);
 
   const upload = async (files: File[]) => {
     if (!files.length) return;
-    if (files.length > 1) { setError("One file at a time: choose or drop a single file."); return; }
-    const f = files[0];
-    if (isMedia(f)) { setError(`${f.name}: Audio and video files are not accepted. Upload a transcript of the recording instead (for example .txt, .docx, .srt or .vtt).`); return; }
-    setBusy(f.name);
-    setError(null);
-    const fd = new FormData();
-    fd.append("files", f, f.name);
-    try {
-      let [res] = await api.post<any[]>(`/api/projects/${project!.id}/uploads`, fd);
-      if (!res.id) { setError(`${f.name}: ${res.error ?? "upload failed"}`); return; }
-      // read the file with the suggested column mapping straight away; Advanced options can change it
-      const suggested = res.mapping?.suggested;
-      if (res.status !== "failed" && suggested?.text_col) {
-        res = await api.post<Dataset>(`/api/datasets/${res.id}/mapping`, { duplicate_policy: "flag", metadata_cols: [], ...suggested });
+    const problems: string[] = [];
+    const added: Dataset[] = [];
+    setErrors([]);
+    for (const [i, f] of files.entries()) {
+      if (isMedia(f)) { problems.push(`${f.name}: ${MEDIA}`); continue; }
+      setBusy(files.length > 1 ? `${f.name} (${i + 1} of ${files.length})` : f.name);
+      const fd = new FormData();
+      fd.append("files", f, f.name);
+      try {
+        let [res] = await api.post<any[]>(`/api/projects/${project!.id}/uploads`, fd);
+        if (!res.id) { problems.push(`${f.name}: ${res.error ?? "upload failed"}`); continue; }
+        // read the file with the suggested column mapping straight away; Advanced options can change it
+        const suggested = res.mapping?.suggested;
+        if (res.status !== "failed" && suggested?.text_col) {
+          res = await api.post<Dataset>(`/api/datasets/${res.id}/mapping`, { duplicate_policy: "flag", metadata_cols: [], ...suggested });
+        }
+        if (res.status === "failed") problems.push(`${f.name}: ${res.error}`);
+        added.push(res);
+      } catch (e: any) {
+        problems.push(`${f.name}: ${e.message}`);
       }
-      await refreshData();
-      setDatasetId(res.id);
-      onDone();
-      toast(usable(res) ? `${f.name}: ${fmt.n(res.quality?.valid_records)} records ready to analyse` : `${f.name} uploaded — check its columns under Advanced options`, res.status === "failed" ? "error" : "success");
-    } catch (e: any) {
-      setError(`${f.name}: ${e.message}`);
-    } finally {
-      setBusy(null);
     }
+    setBusy(null);
+    setErrors(problems);
+    if (!added.length) return;
+    await refreshData();
+    // several files are analysed together as one thematic analysis; a first, single file on its own
+    const total = (await api.get<Dataset[]>(`/api/projects/${project!.id}/datasets`)).length;
+    setDatasetId(total > 1 ? ALL_FILES : added[0].id);
+    const ready = added.filter(usable);
+    const note = problems.length ? ` · ${problems.length} ${problems.length === 1 ? "file needs" : "files need"} attention (see the message above)` : "";
+    toast((added.length === 1
+      ? (ready.length ? `${added[0].filename}: ${fmt.n(added[0].quality?.valid_records)} records ready to analyse` : `${added[0].filename} uploaded — check its columns under Advanced options`)
+      : `${ready.length} of ${added.length} files added and ready to analyse`) + note, problems.length ? "error" : "success");
+    onDone(problems);
   };
 
   return (
@@ -115,18 +135,55 @@ function DropZone({ onDone, onCancel }: { onDone: () => void; onCancel?: () => v
         ) : (
           <>
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-accent/10 text-accent"><Icon path={ICONS.upload} size={24} /></div>
-            <div className="mt-4 text-[15px] font-semibold text-ink">Drop a file here, or click to choose one</div>
-            <div className="mt-1 text-sm text-muted">Any text file: an article, transcript, report or survey export — one file per analysis</div>
+            <div className="mt-4 text-[15px] font-semibold text-ink">Drop files here, or click to choose them</div>
+            <div className="mt-1 text-sm text-muted">Blogs, articles, transcripts, reports or survey exports — one or many; several files are analysed together</div>
             <div className="mt-4 flex flex-wrap justify-center gap-1.5">
               {FORMATS.split(" · ").map((x) => <span key={x} className="rounded-md bg-raised px-2 py-0.5 text-[11px] font-medium text-ink2">{x}</span>)}
               <span className="px-1 py-0.5 text-[11px] text-muted">and any other text file · no audio or video</span>
             </div>
           </>
         )}
-        <input ref={input} type="file" className="hidden" onChange={(e) => { upload(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
+        <input ref={input} type="file" multiple className="hidden" onChange={(e) => { upload(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
       </div>
-      {error && <ErrorBox error={error} />}
-      {onCancel && !busy && <Button small kind="ghost" onClick={onCancel}>Keep the current file</Button>}
+      {errors.map((e) => <ErrorBox key={e} error={e} />)}
+      {onCancel && !busy && <Button small kind="ghost" onClick={onCancel}>Back to the analysis</Button>}
+    </div>
+  );
+}
+
+/** Switch between the analysis of all files together and one file, where the project has several. */
+function ScopeSelect() {
+  const { datasets, datasetId, setDatasetId } = useApp();
+  if (datasets.length < 2) return null;
+  return (
+    <select aria-label="What to analyse" className={cx(inputBase, "w-56 py-1.5")} value={datasetId ?? ""} onChange={(e) => setDatasetId(e.target.value)}>
+      <option value={ALL_FILES}>All files together ({datasets.length})</option>
+      {datasets.map((d) => <option key={d.id} value={d.id}>Only {d.filename}</option>)}
+    </select>
+  );
+}
+
+function AllFilesSummary({ files, onAdd }: { files: Dataset[]; onAdd: () => void }) {
+  const ok = files.filter(usable);
+  const records = ok.reduce((n, f) => n + (f.quality?.valid_records ?? 0), 0);
+  return (
+    <div className="px-6 py-5">
+      <div className="flex flex-wrap items-center gap-4">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-accent"><Icon path={ICONS.dashboard} size={22} /></div>
+        <div className="min-w-0 flex-1">
+          <div className="text-[15px] font-semibold text-ink">All files together</div>
+          <div className="mt-0.5 text-xs text-muted">{ok.length} of {files.length} files · {fmt.n(records)} records · one thematic analysis of all of them</div>
+        </div>
+        <ScopeSelect />
+        <Button kind="ghost" onClick={onAdd}><Icon path={ICONS.upload} size={14} />Add files</Button>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {files.slice(0, 10).map((f) => (
+          <span key={f.id} title={usable(f) ? f.filename : `${f.filename}: ${f.error ?? "columns not set"} — not included`}
+            className={cx("max-w-[240px] truncate rounded-md px-2 py-0.5 text-[11px] font-medium", usable(f) ? "bg-raised text-ink2" : "bg-bad/10 text-bad line-through")}>{f.filename}</span>
+        ))}
+        {files.length > 10 && <span className="px-1 py-0.5 text-[11px] text-muted">+{files.length - 10} more</span>}
+      </div>
     </div>
   );
 }
@@ -142,7 +199,8 @@ function FileSummary({ ds, onReplace }: { ds: Dataset; onReplace: () => void }) 
         </div>
       </div>
       <Badge status={ds.status} />
-      <Button kind="ghost" onClick={onReplace}><Icon path={ICONS.upload} size={14} />Use a different file</Button>
+      <ScopeSelect />
+      <Button kind="ghost" onClick={onReplace}><Icon path={ICONS.upload} size={14} />Add files</Button>
     </div>
   );
 }
@@ -297,16 +355,18 @@ function useRunSettings() {
   return { cfg, setCfg, label, setLabel, codebook, setCodebook, synonyms, setSynonyms, stopwords, setStopwords };
 }
 
-function ConfigureAndRun({ ds, runs, s, onReplace }: { ds: Dataset; runs: Run[]; s: ReturnType<typeof useRunSettings>; onReplace: () => void }) {
+function ConfigureAndRun({ ds, files, runs, s, onAdd }: { ds: Dataset | null; files: Dataset[]; runs: Run[]; s: ReturnType<typeof useRunSettings>; onAdd: () => void }) {
   const { project, allRuns, refreshData, toast, openRun, system } = useApp();
   const { cfg, setCfg, label, setLabel, codebook, setCodebook, synonyms, setSynonyms, stopwords, setStopwords } = s;
   const [watch, setWatch] = useState<string | null>(null);
   const nav = useNavigate();
-  const ready = usable(ds);
-  const applied = ds.mapping?.applied;
-  const hasTime = !!applied?.time_col;
-  const hasLabel = !!applied?.label_col;
-  const hasGroup = !!applied?.group_col;
+  // ds is the one file analysed on its own; null when all files are analysed together
+  const included = files.filter(usable);
+  const ready = ds ? usable(ds) : included.length > 0;
+  const applied = included.map((f) => f.mapping?.applied).filter(Boolean) as Mapping[];
+  const hasTime = applied.some((m) => m.time_col);
+  const hasLabel = applied.some((m) => m.label_col);
+  const hasGroup = applied.some((m) => m.group_col);
   const leiden = system?.optional?.leiden;
 
   // follow the run started here, or one already running for this file
@@ -378,8 +438,8 @@ function ConfigureAndRun({ ds, runs, s, onReplace }: { ds: Dataset; runs: Run[];
 
   const start = async () => {
     const body = {
-      dataset_ids: [ds.id],
-      label: label || undefined,
+      dataset_ids: ds ? [ds.id] : included.map((f) => f.id),
+      label: label || (ds ? undefined : `All ${included.length} files together`),
       config: {
         ...cfg,
         temporal: cfg.temporal && hasTime,
@@ -398,16 +458,18 @@ function ConfigureAndRun({ ds, runs, s, onReplace }: { ds: Dataset; runs: Run[];
   };
 
   const previous = runs.filter((r) => r.status === "completed");
-  const failed = ds.status === "failed" && !ds.columns;
+  const failed = !!ds && ds.status === "failed" && !ds.columns;
+  const left = files.length - included.length;
   return (
     <>
       <section className="overflow-hidden rounded-2xl border border-line bg-surface" style={{ boxShadow: "var(--shadow-sm)" }}>
-        <FileSummary ds={ds} onReplace={onReplace} />
+        {ds ? <FileSummary ds={ds} onReplace={onAdd} /> : <AllFilesSummary files={files} onAdd={onAdd} />}
         <div className="border-t border-line bg-page/40 px-6 py-5">
-          {failed && <div className="mb-4"><ErrorBox error={`${ds.filename}: ${ds.error}`} /></div>}
-          {!failed && !ready && <div className="mb-4 rounded-lg bg-warn/10 px-3 py-2 text-sm text-warn">! Check which column holds the text under Advanced options, then validate.</div>}
+          {failed && <div className="mb-4"><ErrorBox error={`${ds!.filename}: ${ds!.error}`} /></div>}
+          {ds && !failed && !ready && <div className="mb-4 rounded-lg bg-warn/10 px-3 py-2 text-sm text-warn">! Check which column holds the text under Advanced options, then validate.</div>}
+          {!ds && left > 0 && <div className="mb-4 rounded-lg bg-warn/10 px-3 py-2 text-sm text-warn">! {left} {left === 1 ? "file is" : "files are"} not included (struck through above): {left === 1 ? "it could" : "they could"} not be read, or {left === 1 ? "its" : "their"} text column is not set. Choose {left === 1 ? "it" : "one"} in “What to analyse” to fix it.</div>}
           <div className="flex flex-wrap items-center gap-3">
-            <Button large kind="primary" onClick={start} disabled={!ready || busy}><Icon path={ICONS.play} size={14} />{busy ? "Analysing…" : previous.length ? "Analyse again" : "Analyse this file"}</Button>
+            <Button large kind="primary" onClick={start} disabled={!ready || busy}><Icon path={ICONS.play} size={14} />{busy ? "Analysing…" : ds ? (previous.length ? "Analyse again" : "Analyse this file") : (previous.length ? "Analyse all files together again" : `Analyse all ${included.length} files together`)}</Button>
             {previous.length > 0 && (
               <Button kind="ghost" onClick={() => { openRun(previous[0].id); nav("/dashboard"); }}>
                 Open the latest dashboard<Icon path={ICONS.arrow} size={13} />
@@ -419,8 +481,9 @@ function ConfigureAndRun({ ds, runs, s, onReplace }: { ds: Dataset; runs: Run[];
         </div>
       </section>
 
-      <Disclosure title="Advanced options" desc="How the file was read, column mapping, codebook rules and every ML setting" defaultOpen={!ready && !failed}>
-        {ds.columns && (
+      <Disclosure title="Advanced options" desc={ds ? "How the file was read, column mapping, codebook rules and every ML setting" : "Codebook rules and every ML setting for the analysis of all files"} defaultOpen={!!ds && !ready && !failed}>
+        {!ds && <p className="mb-4 text-xs text-muted">Each file keeps the columns ThematicML found in it. To check or change one file's columns, choose it in “What to analyse”.</p>}
+        {ds?.columns && (
           <>
             <h3 className="text-sm font-semibold text-ink">How the file was read</h3>
             <p className="mb-3 text-xs text-muted">{fmt.n(ds.n_rows)} rows · encoding {ds.encoding ?? "n/a"}{ds.structured ? "" : " · document split into passages"}</p>

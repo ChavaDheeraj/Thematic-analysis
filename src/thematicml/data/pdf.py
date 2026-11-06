@@ -129,9 +129,9 @@ def _table_residue(text: str) -> bool:
 
 
 def _repair(text: str, counts: Counter, hyphenated: set[str]) -> str:
+    """Undo spacing artefacts of the text layer using the document's own vocabulary."""
     from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS  # imported on first use: slow to load in the browser edition
 
-    """Undo spacing artefacts of the text layer using the document's own vocabulary."""
     text = re.sub(r"\s+([,.;:!?)])", r"\1", text)  # "In fact ," -> "In fact,"
 
     def hyphen(m):  # "in -depth", "tour - ists", "self - actualization"; a spaced dash between words stays

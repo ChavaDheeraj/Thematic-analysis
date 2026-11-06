@@ -16,9 +16,9 @@ class ClusteringError(ValueError):
 
 
 def lsa_embed(X: sp.csr_matrix, n_components: int, random_state: int) -> np.ndarray:
+    """Reduce TF-IDF with truncated SVD and L2-normalise (latent semantic analysis)."""
     from sklearn.preprocessing import normalize  # imported on first use: slow to load in the browser edition
 
-    """Reduce TF-IDF with truncated SVD and L2-normalise (latent semantic analysis)."""
     k = max(1, min(n_components, X.shape[1] - 1, X.shape[0] - 1))
     if k < 2:
         return normalize(X.toarray())
@@ -46,19 +46,19 @@ def _silhouette(Z, labels, seed) -> float | None:
 
 
 def cluster_segments(X: sp.csr_matrix, cfg: AnalysisConfig) -> dict:
-    from sklearn.metrics import calinski_harabasz_score, davies_bouldin_score  # imported on first use: slow to load in the browser edition
-
     """Cluster rows of X. Rows with no features get label -1 (unassigned).
 
     Returns dict with labels (np.ndarray), embedding (np.ndarray, rows with
     features only), metrics, and k-selection diagnostics.
     """
+    from sklearn.metrics import calinski_harabasz_score, davies_bouldin_score  # imported on first use: slow to load in the browser edition
+
     t0 = time.perf_counter()
     has_feat = np.diff(X.indptr) > 0
     idx = np.flatnonzero(has_feat)
     n = len(idx)
-    if n < 3:
-        raise ClusteringError("Clustering requires at least 3 segments with extracted features.")
+    if n == 0:
+        raise ClusteringError("No passage contains words that can be clustered.")
     if cfg.clustering_method == "hierarchical" and n > cfg.max_hierarchical_segments:
         raise ClusteringError(
             f"Hierarchical clustering is limited to {cfg.max_hierarchical_segments} segments "
@@ -67,7 +67,9 @@ def cluster_segments(X: sp.csr_matrix, cfg: AnalysisConfig) -> dict:
     Z = lsa_embed(X[idx], cfg.svd_components, cfg.random_state)
 
     selection = []
-    if cfg.n_clusters:
+    if n < 3:  # one or two passages: one group, nothing to choose between
+        sub = np.zeros(n, dtype=int)
+    elif cfg.n_clusters:
         k = min(cfg.n_clusters, n - 1)
         sub = _fit(cfg.clustering_method, Z, k, cfg.random_state)
     else:
@@ -88,7 +90,7 @@ def cluster_segments(X: sp.csr_matrix, cfg: AnalysisConfig) -> dict:
     metrics = {
         "algorithm": cfg.clustering_method,
         "n_clusters": int(len(set(sub))),
-        "k_selection": "fixed" if cfg.n_clusters else "max silhouette over k range",
+        "k_selection": "one group (fewer than 3 passages)" if n < 3 else "fixed" if cfg.n_clusters else "max silhouette over k range",
         "k_candidates": selection,
         "representation": f"TF-IDF → truncated SVD ({Z.shape[1]} components) → L2 normalised",
         "silhouette_cosine": None if sil is None else round(sil, 4),

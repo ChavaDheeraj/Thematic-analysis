@@ -98,6 +98,7 @@ class FeatureSet:
     vectorizer: TfidfVectorizer
     normaliser: TextNormaliser
     vocabulary: np.ndarray
+    relaxed: str | None = None  # set when the frequency filters had to be relaxed for a short text
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -129,30 +130,37 @@ def fit_tfidf(texts: list[str], cfg: AnalysisConfig) -> FeatureSet:
     n = len(texts)
     if n == 0:
         raise FeatureError("No text segments available for feature extraction.")
-    norm = TextNormaliser(cfg)
-    min_df = cfg.min_df if n >= cfg.min_df * 2 else 1
-    max_df = cfg.max_df if n >= 10 else 1.0
     from sklearn.feature_extraction.text import TfidfVectorizer  # imported on first use: slow to load in the browser edition
 
-    vec = TfidfVectorizer(
-        preprocessor=norm.preprocess,
-        tokenizer=norm.tokenize,
-        token_pattern=None,
-        lowercase=False,
-        ngram_range=(cfg.ngram_min, cfg.ngram_max),
-        min_df=min_df,
-        max_df=max_df,
-        max_features=cfg.max_features,
-        sublinear_tf=True,
-    )
-    try:
-        X = vec.fit_transform(texts)
-    except ValueError as exc:
-        raise FeatureError(
-            "No terms remained after preprocessing. Lower the minimum document frequency, "
-            "disable stopword removal, or check that the selected text column contains text."
-        ) from exc
-    return FeatureSet(X.tocsr(), vec, norm, vec.get_feature_names_out())
+    # A short text can lose every term to the frequency filters (each word in one passage, or the few shared words in
+    # nearly all of them). The filters are then relaxed step by step, and stopwords kept as a last resort, rather than
+    # failing; FeatureSet.relaxed says which step was needed.
+    attempts = [
+        (cfg, cfg.min_df if n >= cfg.min_df * 2 else 1, cfg.max_df if n >= 10 else 1.0, None),
+        (cfg, 1, 1.0, "frequency filters relaxed for a short text (min document frequency 1, max share 100%)"),
+    ]
+    if cfg.remove_stopwords:
+        attempts.append((cfg.model_copy(update={"remove_stopwords": False}), 1, 1.0,
+                         "frequency filters relaxed and stopwords kept: the text has too few other words"))
+    for c, min_df, max_df, relaxed in attempts:
+        norm = TextNormaliser(c)
+        vec = TfidfVectorizer(
+            preprocessor=norm.preprocess,
+            tokenizer=norm.tokenize,
+            token_pattern=None,
+            lowercase=False,
+            ngram_range=(c.ngram_min, c.ngram_max),
+            min_df=min_df,
+            max_df=max_df,
+            max_features=c.max_features,
+            sublinear_tf=True,
+        )
+        try:
+            X = vec.fit_transform(texts)
+        except ValueError:
+            continue
+        return FeatureSet(X.tocsr(), vec, norm, vec.get_feature_names_out(), relaxed)
+    raise FeatureError("The text contains no words that can be analysed (only numbers, symbols or very short tokens).")
 
 
 def count_matrix(texts: list[str], features: FeatureSet) -> sp.csr_matrix:

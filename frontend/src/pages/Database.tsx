@@ -27,7 +27,10 @@ export default function DatabasePage() {
 }
 
 function Database() {
-  const { project, datasets, dataset, datasetId, allRuns, run, refreshData, toast, setDatasetId } = useApp();
+  const { project, datasets, dataset, datasetId, allFiles, allRuns, run, refreshData, toast, setDatasetId } = useApp();
+  // with all files analysed together, a row of the file list opens that file's records without leaving the combined analysis
+  const [viewId, setViewId] = useState<string | null>(null);
+  const shown = dataset ?? datasets.find((x) => x.id === viewId) ?? null;
   const [params, setParams] = useSearchParams();
   const tab: Tab = TABS.find((t) => t.id === params.get("tab"))?.id ?? "files";
   const step: Step = STEPS.find((s) => s.id === params.get("step") && s.id !== "map")?.id ?? "cleaned";
@@ -56,7 +59,9 @@ function Database() {
   const theme = themeId !== null ? d?.themes.table.find((t: any) => t.id === themeId) ?? null : null;
 
   const runBody = (render: (d: any) => ReactNode) => {
-    if (!ok) return <div className="mt-6"><Unavailable reason={run ? `${run.label} is ${run.status}.` : "Choose a file with a completed analysis in the bar above."} /></div>;
+    if (!ok) return <div className="mt-6"><Unavailable reason={run ? `${run.label} is ${run.status}.` : allFiles
+      ? "Your files have not been analysed together yet. Use “Analyse all files together” on the Upload & analyse page."
+      : "Choose a file with a completed analysis in the bar above."} /></div>;
     if (dErr) return <div className="mt-6"><ErrorBox error={dErr} /></div>;
     if (dLoading && !d) return <Loading />;
     return d ? render(d) : null;
@@ -64,14 +69,14 @@ function Database() {
 
   return (
     <div className="mx-auto max-w-7xl">
-      <PageHeader title="Database" desc="Choose a file and analysis, then explore every stored record, code, theme and metric in detail, and export them." />
+      <PageHeader title="Database" desc="Choose all files together or one file, and an analysis; then explore every stored record, code, theme and metric in detail, and export them." />
       <DataToolbar />
       <Tabs tabs={[...TABS]} value={tab} onChange={(t) => setParams({ tab: t })} />
       <div className="[&>:first-child]:mt-6">
         {tab === "files" && (
           <>
-            <Files datasets={datasets} active={datasetId} onPick={(id) => setDatasetId(id)} />
-            {dataset && <Records key={dataset.id} ds={dataset} onRecord={setRecordId} onDelete={del} />}
+            <Files datasets={datasets} active={shown?.id ?? null} allFiles={allFiles} onPick={(id) => (allFiles ? setViewId(id) : setDatasetId(id))} />
+            {shown && <Records key={shown.id} ds={shown} onRecord={setRecordId} onDelete={del} />}
           </>
         )}
         {tab === "codes" && runBody((d) => <ThematicAnalysis d={d} structure={structure} structureError={sErr} runId={run!.id} step={step} onCode={setCodeId} onTheme={setThemeId} reload={reload} />)}
@@ -92,10 +97,11 @@ function Database() {
   );
 }
 
-function Files({ datasets, active, onPick }: { datasets: Dataset[]; active: string | null; onPick: (id: string) => void }) {
+function Files({ datasets, active, allFiles, onPick }: { datasets: Dataset[]; active: string | null; allFiles: boolean; onPick: (id: string) => void }) {
   return (
     <>
-      <SectionTitle id="files" title="Files" desc="Click a row to open its records; it also becomes the file shown on the Dashboard" />
+      <SectionTitle id="files" title="Files" desc={allFiles ? `All ${datasets.length} files are analysed together. Click a row to open its records.`
+        : "Click a row to open its records; it also becomes the file shown on the Dashboard"} />
       <Card>
         <Table<Dataset> rows={datasets} rowKey={(d) => d.id} onRow={(d) => onPick(d.id)} initialSort={{ key: "uploaded_at", dir: -1 }}
           empty="No files yet."

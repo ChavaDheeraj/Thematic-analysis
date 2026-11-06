@@ -170,6 +170,8 @@ def _stage_features(store, run, cfg, st) -> None:
             "ngram_range": [cfg.ngram_min, cfg.ngram_max], "min_df": cfg.min_df, "max_df": cfg.max_df,
             "max_features": cfg.max_features, "sublinear_tf": True, "synonyms": len(cfg.synonyms),
         },
+        # what was used: short texts relax the frequency filters instead of losing every term
+        "used": {"min_df": feats.vectorizer.min_df, "max_df": feats.vectorizer.max_df, "relaxed": feats.relaxed},
     }
 
 
@@ -177,6 +179,7 @@ def _stage_coding(store, run, cfg, st) -> None:
     segs = st["segments"]
     codes, assigns = [pd.DataFrame(columns=CODE_COLUMNS)], [pd.DataFrame(columns=ASSIGN_COLUMNS)]
     skipped: list[str] = []
+    support = cfg.min_code_support
     if cfg.coding_method in ("tfidf", "both"):
         skip = None
         if cfg.coding_method == "both" and cfg.complement_codebook and cfg.codebook:
@@ -188,7 +191,12 @@ def _stage_coding(store, run, cfg, st) -> None:
                     return True
                 return False
 
-        c, a = extract_phrase_codes(st["features"], segs, cfg.n_codes, cfg.min_code_support, cfg.phrase_boost, skip)
+        # a code must recur, but a short text cannot repeat a phrase in three passages: scale the support down
+        support = min(cfg.min_code_support, max(1, len(segs) // 10))
+        c, a = extract_phrase_codes(st["features"], segs, cfg.n_codes, support, cfg.phrase_boost, skip)
+        if c.empty and support > 1:
+            support = 1
+            c, a = extract_phrase_codes(st["features"], segs, cfg.n_codes, support, cfg.phrase_boost, skip)
         codes.append(c)
         assigns.append(a)
     if cfg.coding_method in ("rules", "both"):
@@ -207,7 +215,7 @@ def _stage_coding(store, run, cfg, st) -> None:
     codes_df = pd.concat([c for c in codes if len(c)] or [codes[0]], ignore_index=True).drop_duplicates("code_key")
     assign_df = pd.concat([a for a in assigns if len(a)] or [assigns[0]], ignore_index=True)
     if codes_df.empty:
-        st["warnings"].append("No candidate codes were generated. Lower the minimum code support or add codebook rules.")
+        st["warnings"].append("This text has no recurring words or phrases to code. Add codebook rules, or analyse it together with other files.")
     st["codes"] = codes_df.reset_index(drop=True)
     st["assignments"] = assign_df.reset_index(drop=True)
     st["summary"]["coding"] = {
@@ -216,7 +224,7 @@ def _stage_coding(store, run, cfg, st) -> None:
         "by_method": codes_df["method"].value_counts().to_dict() if len(codes_df) else {},
         "assignments": int(len(assign_df)),
         "supervised": supervised,
-        "selection": f"top {cfg.n_codes} TF-IDF terms with support >= {cfg.min_code_support} segments, phrase boost {cfg.phrase_boost}",
+        "selection": f"top {cfg.n_codes} TF-IDF terms with support >= {support if cfg.coding_method != 'rules' else cfg.min_code_support} segments, phrase boost {cfg.phrase_boost}",
     }
     if skipped:
         st["summary"]["coding"]["tfidf_terms_left_to_codebook"] = {"count": len(skipped), "top": skipped[:30]}

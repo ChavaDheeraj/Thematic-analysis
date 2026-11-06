@@ -11,7 +11,7 @@ import UploadPage from "./pages/Upload";
 import { useApp } from "./state";
 
 const NAV = [
-  { to: "/upload", label: "Upload & analyse", sub: "One file at a time", icon: ICONS.upload },
+  { to: "/upload", label: "Upload & analyse", sub: "One file or many together", icon: ICONS.upload },
   { to: "/dashboard", label: "Dashboard", sub: "Visual results", icon: ICONS.dashboard },
   { to: "/graphs", label: "Graphs & Patterns", sub: "Relationships", icon: ICONS.graph },
   { to: "/database", label: "Database", sub: "Details, files & export", icon: ICONS.database },

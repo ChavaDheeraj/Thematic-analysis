@@ -1,31 +1,29 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, download, fmt } from "../api";
-import { useApp } from "../state";
+import { ALL_FILES, useApp } from "../state";
 import { Icon, ICONS } from "./icons";
 import { Badge, Button, cx, inputBase } from "./ui";
 
 /** Database controls: which file and analysis to show, the date filter, search and exports. */
 export function DataToolbar() {
   const { project, datasets, datasetId, setDatasetId, runs, run, setRunId, dateFrom, dateTo, setDateRange, activeRuns } = useApp();
-  // analyses made before single-file mode can combine several files; they stay viewable but are labelled
-  const combined = run && run.dataset_ids.length > 1 ? run : null;
   return (
     <div className="mb-6 rounded-xl border border-line bg-surface px-4 py-3" style={{ boxShadow: "var(--shadow-sm)" }}>
       <div className="flex flex-wrap items-end gap-3">
         <Ctl label="File">
-          <select aria-label="File" className={cx(inputBase, "w-56 py-1.5")} value={combined ? "__combined" : datasetId ?? ""} disabled={!project}
-            onChange={(e) => e.target.value !== "__combined" && setDatasetId(e.target.value)}>
-            {combined && <option value="__combined">Combined analysis · {combined.dataset_ids.length} files</option>}
+          <select aria-label="File" className={cx(inputBase, "w-56 py-1.5")} value={datasetId ?? ""} disabled={!project}
+            onChange={(e) => setDatasetId(e.target.value)}>
             {!datasets.length && <option value="">No files yet</option>}
+            {datasets.length > 1 && <option value={ALL_FILES}>All files together ({datasets.length})</option>}
+            {datasets.length > 1 && <option disabled>──────────</option>}
             {datasets.map((d) => <option key={d.id} value={d.id}>{d.filename}</option>)}
           </select>
         </Ctl>
         <Ctl label="Analysis">
-          <select aria-label="Analysis" className={cx(inputBase, "w-56 py-1.5")} value={run?.id ?? ""} onChange={(e) => setRunId(e.target.value || null)} disabled={!runs.length && !combined}>
-            {combined && <option value={combined.id}>{combined.label}</option>}
-            {!runs.length && !combined && <option value="">Not analysed yet</option>}
-            {runs.map((r) => <option key={r.id} value={r.id}>{r.label} · {r.status}{r.finished_at ? ` · ${fmt.day(r.finished_at)}` : ""}</option>)}
+          <select aria-label="Analysis" className={cx(inputBase, "w-56 py-1.5")} value={run?.id ?? ""} onChange={(e) => setRunId(e.target.value || null)} disabled={!runs.length}>
+            {!runs.length && <option value="">{datasetId === ALL_FILES ? "Not analysed together yet" : "Not analysed yet"}</option>}
+            {runs.map((r) => <option key={r.id} value={r.id}>{r.label}{r.dataset_ids.length > 1 ? ` · ${r.dataset_ids.length} files` : ""} · {r.status}{r.finished_at ? ` · ${fmt.day(r.finished_at)}` : ""}</option>)}
           </select>
         </Ctl>
         <Ctl label="Date range">

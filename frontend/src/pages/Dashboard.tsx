@@ -13,16 +13,17 @@ import { useApp, useFetch } from "../state";
 const TONES = ["positive", "neutral", "mixed", "negative", "uncertain"] as const;
 
 export default function DashboardPage() {
-  const { project, dataset, run, activeRuns } = useApp();
+  const { project, dataset, allFiles, run, activeRuns } = useApp();
   const nav = useNavigate();
   if (!project) return <Empty title="No project selected">Create or select a project first.</Empty>;
   if (!run) {
     return (
       <div className="mx-auto max-w-3xl pt-6">
-        <Empty title={dataset ? `${dataset.filename} has not been analysed yet` : "No analysed file yet"}>
-          The dashboard shows the results of one analysed file. Analyse a file, or pick another one on the Database page.
+        <Empty title={allFiles ? "Your files have not been analysed together yet" : dataset ? `${dataset.filename} has not been analysed yet` : "No analysed file yet"}>
+          {allFiles ? "The dashboard shows one thematic analysis of all your files together. Start it on the Upload & analyse page."
+            : "The dashboard shows the results of the analysed file. Analyse it, or pick all files or another file on the Database page."}
           <div className="mt-5 flex justify-center gap-2">
-            <Button kind="primary" onClick={() => nav("/upload")}><Icon path={ICONS.play} size={13} />{dataset ? "Analyse this file" : "Upload a file"}</Button>
+            <Button kind="primary" onClick={() => nav("/upload")}><Icon path={ICONS.play} size={13} />{allFiles ? "Analyse all files together" : dataset ? "Analyse this file" : "Upload a file"}</Button>
             <Button onClick={() => nav("/database")}>Choose another file</Button>
           </div>
         </Empty>
@@ -33,7 +34,7 @@ export default function DashboardPage() {
     const live = activeRuns.find((r) => r.id === run.id);
     return (
       <div className="mx-auto max-w-3xl pt-6">
-        <Card title={`${run.label} is ${run.status}`} subtitle={dataset?.filename}>
+        <Card title={`${run.label} is ${run.status}`} subtitle={allFiles ? `All ${run.dataset_ids.length} files together` : dataset?.filename}>
           {live ? (
             <>
               <div className="h-2 rounded-full bg-raised"><div className="progress-shimmer h-2 rounded-full transition-all" style={{ width: `${Math.max(3, run.progress * 100)}%` }} /></div>
@@ -160,7 +161,7 @@ function Hero({ d }: { d: any }) {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => nav("/database")}>Details, files & export</Button>
-          <Button kind="primary" onClick={() => nav("/upload")}><Icon path={ICONS.upload} size={14} />Analyse a file</Button>
+          <Button kind="primary" onClick={() => nav("/upload")}><Icon path={ICONS.upload} size={14} />Add or analyse files</Button>
         </div>
       </div>
       <dl className="grid grid-cols-2 gap-px border-t border-line bg-line sm:grid-cols-3 xl:grid-cols-6">

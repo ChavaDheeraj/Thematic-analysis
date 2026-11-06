@@ -309,3 +309,40 @@ def test_passages_repeated_across_uploads_are_analysed_once(tmp_path):
     rep = pl.repeated_passages(pd.DataFrame({"text": ["Yes.", "Yes.", text, text], "record_key": ["r1", "r1", "r1", "r2"],
                                              "dataset_id": ["d1", "d2", "d1", "d2"], "word_count": [1, 1, 13, 13]}))
     assert not rep.any()  # short answers, and the same text from a different respondent, are not repeats
+
+
+@pytest.mark.parametrize("paras", [
+    ["Travelling alone through Peru taught me to trust strangers and my own judgement."],
+    ["Travelling alone through Peru taught me to trust strangers.", "Eating alone on the first night felt strange but freeing."],
+    ["Travelling alone taught me to trust myself.", "I felt unsafe at the station at night.", "A stranger helped me find my hostel.",
+     "My family worried about me the whole time.", "The trip gave me confidence I never had before."],
+    [f"Solo travel at night in {c} made me plan every route and share my location with friends." for c in
+     ("Lima", "Cusco", "Quito", "Bogota", "Lisbon", "Porto", "Madrid", "Rome", "Paris", "Berlin", "Prague", "Vienna")],
+])
+def test_short_texts_are_analysed_without_failing(tmp_path, paras):
+    """A short blog post gives few passages: the frequency filters, code support and clustering adapt instead of failing."""
+    f = tmp_path / "post.txt"
+    f.write_text("\n\n".join(paras), encoding="utf-8")
+    p = Project("short", workspace=tmp_path / "ws")
+    res = p.analyze(AnalysisConfig(), dataset_ids=[p.load(f)])
+    assert res.status == "completed", res.run
+    m = res.metrics
+    assert m["coding"]["n_codes"] >= 1 and m["clustering"]["available"]
+    assert not any("No candidate codes" in w or "Clustering unavailable" in w for w in res.run["warnings"])
+
+
+def test_report_of_files_analysed_together(tmp_path):
+    from thematicml.reporting import report_model
+
+    p = Project("together", workspace=tmp_path / "ws")
+    ids = []
+    for name, topic in (("kyoto.txt", "temples"), ("lima.txt", "markets"), ("rome.txt", "museums")):
+        f = tmp_path / name
+        f.write_text("\n\n".join(f"Walking alone past the {topic} at dawn, paragraph {i}, made me feel calm and safe in a new city."
+                                 for i in range(6)), encoding="utf-8")
+        ids.append(p.load(f))
+    res = p.analyze(AnalysisConfig(temporal=False), dataset_ids=ids)
+    assert res.status == "completed", res.run
+    sections = dict(report_model(p.store, res.run_id)["sections"])
+    table = next(b for b in sections["Files analysed together"] if b[0] == "table")
+    assert [row[0] for row in table[2]] == ["kyoto.txt", "lima.txt", "rome.txt"] and all(row[1] == 6 for row in table[2])

@@ -16,7 +16,7 @@ const SAVED_KEY = "tml.graphConfig";
 interface GParams { level: string; min_cooccurrence: number; min_npmi: number; similarity: boolean; similarity_threshold: number; method: string; resolution: number; include_isolated: boolean }
 
 export default function GraphsPage() {
-  const { project, dataset, run } = useApp();
+  const { project, dataset, allFiles, run } = useApp();
   const nav = useNavigate();
   if (!project) return <Empty title="No project selected">Create or select a project first.</Empty>;
   const ok = run?.status === "completed";
@@ -24,10 +24,10 @@ export default function GraphsPage() {
     <div className="mx-auto max-w-7xl">
       <PageHeader title="Graphs & Patterns" desc="How the codes of one analysed file connect, how its themes relate, which groups they form, and how they change over time." />
       {ok ? <Graphs key={run!.id} run={run!} /> : (
-        <Empty title={dataset ? `No completed analysis of ${dataset.filename}` : "No analysed file"}>
+        <Empty title={allFiles ? "Your files have not been analysed together yet" : dataset ? `No completed analysis of ${dataset.filename}` : "No analysed file"}>
           Graphs are built from a completed analysis of one file. Analyse the file, or pick another file or analysis on the Database page.
           <div className="mt-4 flex justify-center gap-2">
-            <Button kind="primary" onClick={() => nav("/upload")}>Analyse a file</Button>
+            <Button kind="primary" onClick={() => nav("/upload")}>{allFiles ? "Analyse all files together" : "Analyse a file"}</Button>
             <Button onClick={() => nav("/database")}>Choose another file</Button>
           </div>
         </Empty>

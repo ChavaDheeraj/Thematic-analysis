@@ -8,14 +8,19 @@ function save(key: string, value: string | null) {
   try { if (value === null) localStorage.removeItem(`tml.${key}`); else localStorage.setItem(`tml.${key}`, value); } catch { /* storage unavailable */ }
 }
 
-/** Analyses of exactly this one file (runs are listed newest first). */
+/** The scope that analyses every file of the project together, in place of one file. */
+export const ALL_FILES = "__all";
+
+/** Analyses in a scope (newest first): of exactly this one file, or, for ALL_FILES, of several files together. */
 export function fileRuns(runs: Run[], datasetId: string | null): Run[] {
+  if (datasetId === ALL_FILES) return runs.filter((r) => r.dataset_ids.length > 1);
   return runs.filter((r) => r.dataset_ids.length === 1 && r.dataset_ids[0] === datasetId);
 }
 const latestCompleted = (runs: Run[]) => runs.find((r) => r.status === "completed") ?? null;
 /** The analysis to open for a file: its own latest one, else the latest that included it (a combined analysis). */
 const defaultRun = (runs: Run[], datasetId: string | null) =>
-  latestCompleted(fileRuns(runs, datasetId)) ?? latestCompleted(runs.filter((r) => datasetId !== null && r.dataset_ids.includes(datasetId)));
+  latestCompleted(fileRuns(runs, datasetId)) ??
+  (datasetId === ALL_FILES ? null : latestCompleted(runs.filter((r) => datasetId !== null && r.dataset_ids.includes(datasetId))));
 
 export interface Toast { id: number; kind: "info" | "error" | "success"; text: string }
 
@@ -27,18 +32,21 @@ interface AppState {
   project: Project | null;
   setProjectId: (id: string | null) => void;
   datasets: Dataset[];
-  /** The one file being analysed; every page works on a single file at a time. */
+  /** What every page shows: ALL_FILES (one analysis of the project's files together) or one file's id. */
   datasetId: string | null;
+  /** The selected file; null when all files are analysed together. */
   dataset: Dataset | null;
+  /** True when the pages show the analysis of all the project's files together. */
+  allFiles: boolean;
   setDatasetId: (id: string | null) => void;
-  /** Analyses of the selected file only. */
+  /** Analyses in the selected scope: of the selected file, or of all files together. */
   runs: Run[];
   /** Every analysis in the project, including ones that combined several files before single-file mode. */
   allRuns: Run[];
   run: Run | null;
   runId: string | null;
   setRunId: (id: string | null) => void;
-  /** Show this analysis; a single-file analysis also selects its file. */
+  /** Show this analysis, and select its file, or all files for an analysis of several. */
   openRun: (id: string) => void;
   dateFrom: string;
   dateTo: string;
@@ -100,9 +108,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
   const openRun = (id: string) => {
     const r = runs.find((x) => x.id === id);
-    if (r?.dataset_ids.length === 1) {
-      setDatasetIdRaw(r.dataset_ids[0]);
-      save("dataset", r.dataset_ids[0]);
+    if (r) {
+      const scope = r.dataset_ids.length === 1 ? r.dataset_ids[0] : ALL_FILES;
+      setDatasetIdRaw(scope);
+      save("dataset", scope);
     }
     setRunId(id);
   };
@@ -141,12 +150,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     refreshData().catch((e) => e.message !== NO_SERVER && toast(String(e.message ?? e), "error"));
   }, [refreshData, toast]);
 
-  // keep the selected file valid, defaulting to the newest upload
+  // keep the selection valid. A project with several files opens on the analysis of all of them together;
+  // a single file can still be chosen in the Database page's file selector.
+  const openedProject = useRef<string | null>(null);
   useEffect(() => {
-    if (!datasets.length || (datasetId && datasets.find((d) => d.id === datasetId))) return;
-    setDatasetIdRaw(datasets[0].id);
-    save("dataset", datasets[0].id);
-  }, [datasets, datasetId]);
+    if (!datasets.length || !projectId) return;
+    const opening = openedProject.current !== projectId;
+    openedProject.current = projectId;
+    const valid = datasetId === ALL_FILES ? datasets.length > 1 : !!datasets.find((d) => d.id === datasetId);
+    if (valid && !(opening && datasets.length > 1 && datasetId !== ALL_FILES)) return;
+    const next = datasets.length > 1 ? ALL_FILES : datasets[0].id;
+    setDatasetIdRaw(next);
+    save("dataset", next);
+    setRunId(defaultRun(runs, next)?.id ?? null);
+  }, [datasets, datasetId, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // keep the selected run valid, defaulting to the latest completed analysis of the selected file
   const scopedRuns = useMemo(() => fileRuns(runs, datasetId), [runs, datasetId]);
@@ -181,7 +198,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const run = runs.find((r) => r.id === runId) ?? null;
 
   const value: AppState = {
-    system, serverDown, projects, project, setProjectId, datasets, datasetId, dataset, setDatasetId, runs: scopedRuns, allRuns: runs, run, runId, setRunId, openRun,
+    system, serverDown, projects, project, setProjectId, datasets, datasetId, dataset, allFiles: datasetId === ALL_FILES, setDatasetId, runs: scopedRuns, allRuns: runs, run, runId, setRunId, openRun,
     dateFrom, dateTo, setDateRange: (f, t) => { setDateFrom(f); setDateTo(t); },
     refreshProjects, refreshData, activeRuns, toast, toasts, theme, setTheme,
   };
