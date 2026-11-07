@@ -37,6 +37,7 @@ from thematicml.results import (
     code_evidence,
     code_table,
     graph_view,
+    project_overview,
     record_detail,
     run_snapshot,
     temporal_view,
@@ -262,6 +263,13 @@ async def upload(pid: str, files: list[UploadFile] = File(...)):
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
     return out
+
+
+@app.get("/api/projects/{pid}/overview")
+def overview(pid: str):
+    """Every file with its own latest analysis, and the average of those analyses."""
+    _need(store.get_project(pid), "Project")
+    return project_overview(store, pid)
 
 
 @app.get("/api/projects/{pid}/datasets")

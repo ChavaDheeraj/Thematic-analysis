@@ -87,10 +87,10 @@ For UI development, run the backend on port 8000 and `npm run dev` in `frontend/
 
 The app has four pages:
 
-1. **Upload & analyse** — add one file or many at once (a file the project already holds is refused). With several files, *Analyse all N files together* runs **one thematic analysis of all of them**: codes, categories, themes, the thematic map and the exported report cover every file. *What to analyse* switches to a single file. The reading check, column mapping and all ML settings are folded under *Advanced options*.
+1. **Upload & analyse** — add one file or many at once (a file the project already holds is refused). With several files, *Analyse all N files together* runs **one thematic analysis of all of them**: codes, categories, themes, the thematic map and the exported report cover every file. *What to analyse* switches to a single file; a file uploaded on its own is analysed on its own, and *Analyse each file* gives every file its own analysis. The reading check, column mapping and all ML settings are folded under *Advanced options*.
 2. **Dashboard** — the seven analysis steps as one row, then charts: themes, tone, what the themes say, codes, co-occurrence, tone by theme, topics, trends and model fit.
 3. **Graphs & Patterns** — the interactive code graph, the thematic map, pattern clustering and temporal analysis. Network statistics, comparisons, the GNN and graph exports are folded under *More analysis*.
-4. **Database** — file (*All files together* or one file), analysis, date, search and export controls, with tabs for files and records, the thematic analysis steps, quality and statistics, model metrics, and history and storage.
+4. **Database** — file (*All files together* or one file), analysis, date, search and export controls, with tabs for files and records, the thematic analysis steps, quality and statistics, model metrics, and history and storage. The *Files & records* tab opens with the **project overview**: the number of files, each file's own analysis, and the average (and total) of those analyses, downloadable as CSV.
 
 ### Use from other devices
 

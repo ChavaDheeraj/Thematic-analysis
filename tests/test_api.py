@@ -171,3 +171,30 @@ def test_audio_video_and_any_text_type(client):
     ok = up("field notes.md", "# Day one\n\nTravelling alone taught me to trust my own judgement in every new city.".encode())
     assert ok["status"] == "uploaded" and ok["n_rows"] == 2
     assert up("captions.vtt", b"WEBVTT\n\n00:01.000 --> 00:04.000\nWelcome to the show about travelling alone.\n")["status"] == "uploaded"
+
+
+def test_project_overview_averages_each_files_analysis(client):
+    pid = client.post("/api/projects", json={"name": "Overview"}).json()["id"]
+    pool = ["I felt unsafe at the train station late at night.", "Locals helped me find my hostel when I was lost.",
+            "My family worried about me travelling alone.", "Eating alone in a restaurant felt strange at first.",
+            "The hostel staff warned me about scams near the market.", "Travelling alone gave me confidence I never had.",
+            "I shared my live location with a friend every evening.", "A group tour made the mountain trek feel safer."]
+    ids = []
+    for k, name in enumerate(("kyoto.txt", "lima.txt", "rome.txt")):
+        body = (chr(10) * 2).join(f"{pool[(i + k) % 8]} {pool[(3 * i + k + 1) % 8]}" for i in range(12)).encode()
+        ds = client.post(f"/api/projects/{pid}/uploads", files=[("files", (name, body, "text/plain"))]).json()[0]
+        ids.append(client.post(f"/api/datasets/{ds['id']}/mapping", json=ds["mapping"]["suggested"]).json()["id"])
+    cfg = client.get("/api/config/defaults").json()["config"]
+    for did in ids[:2]:  # the third file stays unanalysed
+        run = client.post(f"/api/projects/{pid}/runs", json={"dataset_ids": [did], "config": cfg}).json()
+        assert wait(client, run["id"])["status"] == "completed"
+    o = client.get(f"/api/projects/{pid}/overview").json()
+    assert o["files"] == 3 and o["analysed"] == 2 and o["not_analysed"] == ["rome.txt"]
+    done = [f for f in o["per_file"] if f["run_id"]]
+    assert [f["filename"] for f in o["per_file"]] == ["kyoto.txt", "lima.txt", "rome.txt"]
+    for k in ("codes", "records", "positive_pct", "themes"):
+        assert o["average"][k] == pytest.approx(sum(f[k] for f in done) / 2, abs=1e-3), k
+    assert o["total"]["records"] == sum(f["records"] for f in done) and o["total"]["passages"] == sum(f["passages"] for f in done)
+    assert any(c["files"] == 2 for c in o["recurring_codes"])  # "hostel", "family" ... come up in both files
+    assert all(f["top_codes"] for f in done) and o["combined_run"] is None
+    assert client.get("/api/projects/nope/overview").status_code == 404

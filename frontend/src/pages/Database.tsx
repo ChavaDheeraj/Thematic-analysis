@@ -5,6 +5,7 @@ import { api, download, fmt, qs, type Dataset, type Run } from "../api";
 import { CodeDrawer, ThemeDrawer } from "../components/Evidence";
 import { GnnDatabaseSection } from "../components/Gnn";
 import { Activity, MLMetrics, Quality, Statistics } from "../components/RunDetails";
+import { ProjectOverview } from "../components/ProjectOverview";
 import { STEPS, ThematicAnalysis, type Step } from "../components/Thematic";
 import { DataToolbar } from "../components/Toolbar";
 import { Badge, Button, Card, Empty, ErrorBox, Field, Loading, Modal, PageHeader, SectionTitle, Stat, Table, Tabs, Unavailable, cx, inputBase, inputCls } from "../components/ui";
@@ -60,7 +61,7 @@ function Database() {
 
   const runBody = (render: (d: any) => ReactNode) => {
     if (!ok) return <div className="mt-6"><Unavailable reason={run ? `${run.label} is ${run.status}.` : allFiles
-      ? "Your files have not been analysed together yet. Use “Analyse all files together” on the Upload & analyse page."
+      ? "There is no single analysis of all files together yet. Each file's own analysis is in the project overview (Files & records), or choose one file above; for themes across all files, use “Analyse all files together” on the Upload & analyse page."
       : "Choose a file with a completed analysis in the bar above."} /></div>;
     if (dErr) return <div className="mt-6"><ErrorBox error={dErr} /></div>;
     if (dLoading && !d) return <Loading />;
@@ -75,6 +76,7 @@ function Database() {
       <div className="[&>:first-child]:mt-6">
         {tab === "files" && (
           <>
+            <ProjectOverview />
             <Files datasets={datasets} active={shown?.id ?? null} allFiles={allFiles} onPick={(id) => (allFiles ? setViewId(id) : setDatasetId(id))} />
             {shown && <Records key={shown.id} ds={shown} onRecord={setRecordId} onDelete={del} />}
           </>

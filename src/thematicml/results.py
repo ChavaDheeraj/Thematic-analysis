@@ -432,3 +432,79 @@ def run_snapshot(store: Store, run_id: str) -> dict:
         "themes": [{"label": t["label"], "status": t["status"], "code_labels": [c["label"] for c in t["codes"]]} for t in theme_table(store, run_id)],
         "config": {k: v for k, v in run["config"].items() if k not in ("codebook", "synonyms", "custom_stopwords")},
     }
+
+
+# ---------------------------------------------------------------------- project overview
+
+OVERVIEW_FIELDS = {
+    # name: (path in the run's metrics, how the total row combines it)
+    "records": (("dataset", "analysed_records"), "sum"),
+    "passages": (("dataset", "segments"), "sum"),
+    "words": (("dataset", "total_words"), "sum"),
+    "codes": (("coding", "n_codes"), None),
+    "coded_pct": (("statistics", "coverage", "coded_segments", "value"), None),
+    "themes": (("themes", "candidate_themes"), None),
+    "clusters": (("clustering", "n_clusters"), None),
+    "topics": (("topics", "n_topics"), None),
+    "positive_pct": (("sentiment", "percentages", "positive", "value"), None),
+    "neutral_pct": (("sentiment", "percentages", "neutral", "value"), None),
+    "negative_pct": (("sentiment", "percentages", "negative", "value"), None),
+    "mean_tone": (("sentiment", "mean_compound"), None),
+    "silhouette": (("clustering", "silhouette_cosine"), None),
+    "coherence": (("topics", "mean_coherence_umass"), None),
+    "modularity": (("graph", "communities", "modularity"), None),
+}
+
+
+def _dig(d, path):
+    for k in path:
+        if not isinstance(d, dict):
+            return None
+        d = d.get(k)
+    return d if isinstance(d, (int, float)) and not isinstance(d, bool) else None
+
+
+def project_overview(store: Store, project_id: str, top_codes: int = 5) -> dict:
+    """Every file of a project with its own latest analysis, the average of those analyses (each file counts once),
+    totals, and the codes that recur across files."""
+    datasets = sorted(store.list_datasets(project_id), key=lambda d: d["uploaded_at"])
+    runs = store.list_runs(project_id)  # newest first
+    files, recurring = [], {}
+    for ds in datasets:
+        run = next((r for r in runs if r["status"] == "completed" and r["dataset_ids"] == [ds["id"]]), None)
+        row = {"dataset_id": ds["id"], "filename": ds["filename"], "format": ds["format"], "status": ds["status"],
+               "valid_records": (ds.get("quality") or {}).get("valid_records"), "run_id": None}
+        if run is not None:
+            m = run.get("metrics") or {}
+            row.update({"run_id": run["id"], "run_label": run["label"], "finished_at": run["finished_at"],
+                        **{k: _dig(m, path) for k, (path, _) in OVERVIEW_FIELDS.items()}})
+            codes = store.query(
+                "SELECT c.label, COUNT(DISTINCT a.segment_id) AS passages FROM codes c JOIN assignments a ON a.code_id = c.id "
+                "WHERE c.run_id = ? AND c.status IN ('candidate', 'approved') GROUP BY c.id ORDER BY passages DESC, c.label", (run["id"],))
+            row["top_codes"] = [c["label"] for c in codes[:top_codes]]
+            row["theme_labels"] = [t["label"] for t in store.query(
+                "SELECT label FROM themes WHERE run_id = ? AND parent_id IS NULL AND status != 'rejected' ORDER BY id", (run["id"],))]
+            for c in codes:
+                key = c["label"].casefold()
+                agg = recurring.setdefault(key, {"code": c["label"], "files": 0, "passages": 0})
+                agg["files"] += 1
+                agg["passages"] += c["passages"]
+        files.append(row)
+    analysed = [f for f in files if f["run_id"]]
+
+    def mean(k):
+        v = [f[k] for f in analysed if f.get(k) is not None]
+        return round(sum(v) / len(v), 4) if v else None
+
+    combined = next((r for r in runs if r["status"] == "completed" and len(r["dataset_ids"]) > 1), None)
+    return {
+        "files": len(files), "analysed": len(analysed), "not_analysed": [f["filename"] for f in files if not f["run_id"]],
+        "per_file": files,
+        "average": {k: mean(k) for k in OVERVIEW_FIELDS},
+        "total": {k: sum(f.get(k) or 0 for f in analysed) for k, (_, how) in OVERVIEW_FIELDS.items() if how == "sum"},
+        "recurring_codes": sorted((c for c in recurring.values() if c["files"] > 1), key=lambda c: (-c["files"], -c["passages"], c["code"]))[:30],
+        "combined_run": {"id": combined["id"], "label": combined["label"], "files": len(combined["dataset_ids"]),
+                         "finished_at": combined["finished_at"]} if combined else None,
+        "note": "Each file's latest analysis of that file alone. Averages give every analysed file the same weight; totals add them up. "
+                "Codes are found per file, so the same code label in two files is counted as recurring.",
+    }

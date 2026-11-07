@@ -5,6 +5,7 @@ import { api, fmt, type Dataset, type Mapping, type Run } from "../api";
 import { Badge, Button, Card, Disclosure, Empty, ErrorBox, Field, Loading, PageHeader, PctStat, Stat, cx, inputBase, inputCls } from "../components/ui";
 import { GnnUploadCard } from "../components/Gnn";
 import { Icon, ICONS } from "../components/icons";
+import { analyseEach, unanalysed } from "../components/ProjectOverview";
 import { ALL_FILES, useApp, useFetch } from "../state";
 
 // examples shown on the drop zone; any file with readable text is accepted, audio and video are not
@@ -106,9 +107,8 @@ function DropZone({ onDone, onCancel }: { onDone: (problems: string[]) => void; 
     setErrors(problems);
     if (!added.length) return;
     await refreshData();
-    // several files are analysed together as one thematic analysis; a first, single file on its own
-    const total = (await api.get<Dataset[]>(`/api/projects/${project!.id}/datasets`)).length;
-    setDatasetId(total > 1 ? ALL_FILES : added[0].id);
+    // a file added on its own is analysed on its own; several added at once are shown together
+    setDatasetId(added.length === 1 ? added[0].id : ALL_FILES);
     const ready = added.filter(usable);
     const note = problems.length ? ` · ${problems.length} ${problems.length === 1 ? "file needs" : "files need"} attention (see the message above)` : "";
     toast((added.length === 1
@@ -157,7 +157,7 @@ function ScopeSelect() {
   if (datasets.length < 2) return null;
   return (
     <select aria-label="What to analyse" className={cx(inputBase, "w-56 py-1.5")} value={datasetId ?? ""} onChange={(e) => setDatasetId(e.target.value)}>
-      <option value={ALL_FILES}>All files together ({datasets.length})</option>
+      <option value={ALL_FILES}>All files ({datasets.length})</option>
       {datasets.map((d) => <option key={d.id} value={d.id}>Only {d.filename}</option>)}
     </select>
   );
@@ -171,8 +171,8 @@ function AllFilesSummary({ files, onAdd }: { files: Dataset[]; onAdd: () => void
       <div className="flex flex-wrap items-center gap-4">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-accent"><Icon path={ICONS.dashboard} size={22} /></div>
         <div className="min-w-0 flex-1">
-          <div className="text-[15px] font-semibold text-ink">All files together</div>
-          <div className="mt-0.5 text-xs text-muted">{ok.length} of {files.length} files · {fmt.n(records)} records · one thematic analysis of all of them</div>
+          <div className="text-[15px] font-semibold text-ink">All files</div>
+          <div className="mt-0.5 text-xs text-muted">{ok.length} of {files.length} files ready · {fmt.n(records)} records</div>
         </div>
         <ScopeSelect />
         <Button kind="ghost" onClick={onAdd}><Icon path={ICONS.upload} size={14} />Add files</Button>
@@ -359,6 +359,7 @@ function ConfigureAndRun({ ds, files, runs, s, onAdd }: { ds: Dataset | null; fi
   const { project, allRuns, refreshData, toast, openRun, system } = useApp();
   const { cfg, setCfg, label, setLabel, codebook, setCodebook, synonyms, setSynonyms, stopwords, setStopwords } = s;
   const [watch, setWatch] = useState<string | null>(null);
+  const [batch, setBatch] = useState<string[] | null>(null); // one analysis per file, started here
   const nav = useNavigate();
   // ds is the one file analysed on its own; null when all files are analysed together
   const included = files.filter(usable);
@@ -413,6 +414,15 @@ function ConfigureAndRun({ ds, files, runs, s, onAdd }: { ds: Dataset | null; fi
     }
   };
 
+  const batchRuns = batch ? allRuns.filter((r) => batch.includes(r.id)) : [];
+  const batchDone = batchRuns.filter((r) => ["completed", "failed", "interrupted"].includes(r.status)).length;
+  useEffect(() => {
+    if (batch && batchRuns.length === batch.length && batchDone === batch.length) {
+      setBatch(null);
+      toast(`All ${batch.length} files analysed`, "success");
+      nav("/database");
+    }
+  }, [batchDone]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!cfg) return <Loading />;
   const set = (k: string, v: unknown) => setCfg({ ...cfg, [k]: v });
   const num = (k: string, label: string, opts: { min?: number; max?: number; step?: number; hint?: string; nullable?: boolean } = {}) => (
@@ -435,6 +445,25 @@ function ConfigureAndRun({ ds, files, runs, s, onAdd }: { ds: Dataset | null; fi
       <span>{label}{hint && <span className="block text-[11px] text-muted">{hint}</span>}</span>
     </label>
   );
+
+  const pending = ds ? [] : unanalysed(included, allRuns);
+  const startEach = async () => {
+    try {
+      const queued = await analyseEach(project!.id, pending, config());
+      setBatch(queued.map((r) => r.id));
+      await refreshData();
+      toast(`${queued.length} analyses queued; they run one after another`);
+    } catch (e: any) { toast(e.message, "error"); }
+  };
+
+  const config = () => ({
+    ...cfg,
+    temporal: cfg.temporal && hasTime,
+    supervised: cfg.supervised && hasLabel,
+    codebook: parsedCodebook,
+    synonyms: Object.fromEntries(synonyms.split("\n").map((l) => l.split("=>").map((x) => x.trim())).filter((p) => p.length === 2 && p[0] && p[1])),
+    custom_stopwords: stopwords.split(/[,\n]/).map((s) => s.trim()).filter(Boolean),
+  });
 
   const start = async () => {
     const body = {
@@ -469,7 +498,11 @@ function ConfigureAndRun({ ds, files, runs, s, onAdd }: { ds: Dataset | null; fi
           {ds && !failed && !ready && <div className="mb-4 rounded-lg bg-warn/10 px-3 py-2 text-sm text-warn">! Check which column holds the text under Advanced options, then validate.</div>}
           {!ds && left > 0 && <div className="mb-4 rounded-lg bg-warn/10 px-3 py-2 text-sm text-warn">! {left} {left === 1 ? "file is" : "files are"} not included (struck through above): {left === 1 ? "it could" : "they could"} not be read, or {left === 1 ? "its" : "their"} text column is not set. Choose {left === 1 ? "it" : "one"} in “What to analyse” to fix it.</div>}
           <div className="flex flex-wrap items-center gap-3">
-            <Button large kind="primary" onClick={start} disabled={!ready || busy}><Icon path={ICONS.play} size={14} />{busy ? "Analysing…" : ds ? (previous.length ? "Analyse again" : "Analyse this file") : (previous.length ? "Analyse all files together again" : `Analyse all ${included.length} files together`)}</Button>
+            {!ds && pending.length > 0 && (
+              <Button large kind="primary" onClick={startEach} disabled={!!batch}><Icon path={ICONS.play} size={14} />
+                {batch ? `Analysing file ${Math.min(batchDone + 1, batch.length)} of ${batch.length}…` : `Analyse each file (${pending.length})`}</Button>
+            )}
+            <Button large kind={!ds && pending.length > 0 ? "default" : "primary"} onClick={start} disabled={!ready || busy || !!batch}><Icon path={ICONS.play} size={14} />{busy ? "Analysing…" : ds ? (previous.length ? "Analyse again" : "Analyse this file") : (previous.length ? "Analyse all files together again" : `Analyse all ${included.length} files together`)}</Button>
             {previous.length > 0 && (
               <Button kind="ghost" onClick={() => { openRun(previous[0].id); nav("/dashboard"); }}>
                 Open the latest dashboard<Icon path={ICONS.arrow} size={13} />

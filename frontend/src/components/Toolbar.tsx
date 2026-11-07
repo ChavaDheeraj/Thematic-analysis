@@ -15,14 +15,14 @@ export function DataToolbar() {
           <select aria-label="File" className={cx(inputBase, "w-56 py-1.5")} value={datasetId ?? ""} disabled={!project}
             onChange={(e) => setDatasetId(e.target.value)}>
             {!datasets.length && <option value="">No files yet</option>}
-            {datasets.length > 1 && <option value={ALL_FILES}>All files together ({datasets.length})</option>}
+            {datasets.length > 1 && <option value={ALL_FILES}>All files ({datasets.length})</option>}
             {datasets.length > 1 && <option disabled>──────────</option>}
             {datasets.map((d) => <option key={d.id} value={d.id}>{d.filename}</option>)}
           </select>
         </Ctl>
         <Ctl label="Analysis">
           <select aria-label="Analysis" className={cx(inputBase, "w-56 py-1.5")} value={run?.id ?? ""} onChange={(e) => setRunId(e.target.value || null)} disabled={!runs.length}>
-            {!runs.length && <option value="">{datasetId === ALL_FILES ? "Not analysed together yet" : "Not analysed yet"}</option>}
+            {!runs.length && <option value="">{datasetId === ALL_FILES ? "No analysis of all files together" : "Not analysed yet"}</option>}
             {runs.map((r) => <option key={r.id} value={r.id}>{r.label}{r.dataset_ids.length > 1 ? ` · ${r.dataset_ids.length} files` : ""} · {r.status}{r.finished_at ? ` · ${fmt.day(r.finished_at)}` : ""}</option>)}
           </select>
         </Ctl>

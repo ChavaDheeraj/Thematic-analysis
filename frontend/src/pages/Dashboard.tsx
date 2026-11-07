@@ -5,8 +5,9 @@ import { fmt, type Run } from "../api";
 import { Chart, axis, barStyle, baseOption, esc, lineStyle } from "../components/Chart";
 import { CodeDrawer, ThemeDrawer } from "../components/Evidence";
 import { Icon, ICONS } from "../components/icons";
+import { ProjectOverview } from "../components/ProjectOverview";
 import { AnalysisPath } from "../components/Thematic";
-import { Badge, Button, Card, Empty, ErrorBox, Loading, Unavailable, cx } from "../components/ui";
+import { Badge, Button, Card, Empty, ErrorBox, Loading, PageHeader, Unavailable, cx } from "../components/ui";
 import { chrome, isDark, sentimentColor, series } from "../colors";
 import { useApp, useFetch } from "../state";
 
@@ -16,6 +17,15 @@ export default function DashboardPage() {
   const { project, dataset, allFiles, run, activeRuns } = useApp();
   const nav = useNavigate();
   if (!project) return <Empty title="No project selected">Create or select a project first.</Empty>;
+  if (!run && allFiles) {
+    // no single analysis of all files together: show each file's analysis and their average
+    return (
+      <div className="mx-auto max-w-7xl">
+        <PageHeader title="Dashboard" desc="All files of this project. Choose one file in the Database page's file selector to see its full dashboard." />
+        <ProjectOverview />
+      </div>
+    );
+  }
   if (!run) {
     return (
       <div className="mx-auto max-w-3xl pt-6">
